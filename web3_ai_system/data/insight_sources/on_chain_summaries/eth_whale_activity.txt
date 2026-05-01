@@ -1,0 +1,3 @@
+Ethereum on-chain monitoring shows elevated large-wallet transfer activity over the last monitoring window.
+Higher transfer concentration may indicate repositioning by large holders, but transfer size alone does not reveal intent.
+Context from exchange inflows, staking behavior, and smart contract interaction is needed before making strong conclusions.
