@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.prediction_engine.data_loader import build_demo_market_data
+from app.market_data.service import MarketDataService
 from app.prediction_engine.preprocessing import validate_market_frame
 from app.prediction_engine.trainer import PredictionTrainer
 from app.schemas import PredictionResult, QueryRequest
@@ -41,9 +41,17 @@ class PredictionService:
         )
 
     def predict(self, request: QueryRequest) -> PredictionResult:
-        demo_frame = build_demo_market_data()
+        market_service = MarketDataService()
+        ohlcv_frame, _ = market_service.get_ohlcv(
+            symbol=request.asset,
+            timeframe="1d",
+            limit=max(240, request.horizon_days + 80),
+        )
+        market_frame = ohlcv_frame.rename(columns={"close": "price"})[
+            ["timestamp", "price", "volume"]
+        ]
         return self.train_and_predict(
-            market_frame=demo_frame,
+            market_frame=market_frame,
             asset=request.asset,
             horizon_days=request.horizon_days,
         )

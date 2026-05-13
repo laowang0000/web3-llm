@@ -1,5 +1,5 @@
 from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI
+from typing import Any
 
 from app.insight_engine.prompts import INSIGHT_PROMPT
 from app.schemas import InsightResult, QueryRequest
@@ -8,7 +8,7 @@ from app.schemas import InsightResult, QueryRequest
 class CryptoInsightRAGPipeline:
     """Runs retrieval and evidence-grounded reasoning for market insights."""
 
-    def __init__(self, retriever, llm: ChatOpenAI) -> None:
+    def __init__(self, retriever, llm: Any) -> None:
         self.retriever = retriever
         self.llm = llm
 

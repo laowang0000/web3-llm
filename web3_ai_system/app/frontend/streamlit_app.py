@@ -1,61 +1,246 @@
-import streamlit as st
-import sys
 import os
+from typing import Any
 
-# Add the project root to the Python path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+import httpx
+import streamlit as st
+from dotenv import load_dotenv
 
-from app.main import build_application
-from app.schemas import QueryRequest
+
+load_dotenv()
+
+DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000"
+BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", DEFAULT_BACKEND_BASE_URL).rstrip("/")
+REQUEST_TIMEOUT_SECONDS = 180.0
+
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+TIMEFRAMES = ["1h", "4h", "1d"]
+
+
+class BackendApiError(RuntimeError):
+    """Raised when the FastAPI backend returns an error response."""
+
+
+def call_backend(method: str, path: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
+    url = f"{BACKEND_BASE_URL}{path}"
+    timeout = httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=10.0)
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.request(method, url, json=json_body)
+    except httpx.ConnectError as exc:
+        raise BackendApiError(
+            f"Cannot connect to backend at {BACKEND_BASE_URL}. Start FastAPI first."
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise BackendApiError("Backend request timed out. Ollama or market data may still be loading.") from exc
+    except httpx.HTTPError as exc:
+        raise BackendApiError(f"Backend request failed: {exc}") from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise BackendApiError(f"Backend returned non-JSON response with HTTP {response.status_code}.") from exc
+
+    error = payload.get("error") or {}
+    if response.status_code >= 400 or payload.get("success") is False:
+        message = error.get("message") or response.text
+        code = error.get("code")
+        if code:
+            raise BackendApiError(f"{code}: {message}")
+        raise BackendApiError(message)
+
+    return payload
+
+
+def format_compact_number(value: Any, prefix: str = "", suffix: str = "") -> str:
+    if value is None:
+        return "N/A"
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+    abs_number = abs(number)
+    if abs_number >= 1_000_000_000_000:
+        return f"{prefix}{number / 1_000_000_000_000:.2f}T{suffix}"
+    if abs_number >= 1_000_000_000:
+        return f"{prefix}{number / 1_000_000_000:.2f}B{suffix}"
+    if abs_number >= 1_000_000:
+        return f"{prefix}{number / 1_000_000:.2f}M{suffix}"
+    if abs_number >= 1_000:
+        return f"{prefix}{number / 1_000:.2f}K{suffix}"
+    return f"{prefix}{number:.2f}{suffix}"
+
+
+def format_decimal(value: Any, digits: int = 4) -> str:
+    if value is None:
+        return "N/A"
+
+    try:
+        return f"{float(value):,.{digits}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def render_sources(sources: list[Any]) -> None:
+    if not sources:
+        st.caption("No sources returned.")
+        return
+
+    for source in sources:
+        if isinstance(source, dict):
+            title = source.get("source_name") or source.get("source_path") or "Retrieved source"
+            preview = source.get("preview")
+            page = source.get("page")
+            label = f"{title} (page {page})" if page is not None else title
+            st.write(f"- {label}")
+            if preview:
+                st.caption(preview)
+        else:
+            st.write(f"- {source}")
+
+
+def render_market_snapshot(data: dict[str, Any]) -> None:
+    st.subheader("Market Snapshot")
+
+    price_col, cap_col, volume_col, change_col = st.columns(4)
+    price_col.metric("Price", format_compact_number(data.get("price"), prefix="$"))
+    cap_col.metric("Market cap", format_compact_number(data.get("market_cap"), prefix="$"))
+    volume_col.metric("24h volume", format_compact_number(data.get("volume_24h"), prefix="$"))
+    change = data.get("change_24h_percent")
+    change_col.metric("24h change", format_compact_number(change, suffix="%"))
+
+    warnings = data.get("source_warnings") or []
+    if warnings:
+        st.warning("Market data source warning: " + " | ".join(warnings))
+
+
+def render_indicators(data: dict[str, Any]) -> None:
+    indicators = data.get("indicators") or {}
+    market = data.get("market") or {}
+
+    st.subheader("Technical Analysis")
+
+    overview_col, trend_col = st.columns([1, 2])
+    with overview_col:
+        st.metric("Price", format_compact_number(data.get("price"), prefix="$"))
+        st.metric("Market cap", format_compact_number(market.get("market_cap"), prefix="$"))
+        st.metric("24h volume", format_compact_number(market.get("volume_24h"), prefix="$"))
+        st.metric("24h change", format_compact_number(market.get("change_24h_percent"), suffix="%"))
+
+    with trend_col:
+        st.markdown("**Trend**")
+        st.write(data.get("trend") or "N/A")
+        st.markdown("**Risk flags**")
+        for flag in data.get("risk_flags") or ["No risk flags returned."]:
+            st.write(f"- {flag}")
+
+    rsi_col, ema_col, macd_col, bollinger_col, vol_col = st.columns(5)
+    rsi_col.metric("RSI", format_decimal(indicators.get("rsi"), 2))
+    ema_col.metric("EMA 20 / 50", f"{format_decimal(indicators.get('ema_20'), 2)} / {format_decimal(indicators.get('ema_50'), 2)}")
+    macd_col.metric("MACD hist", format_decimal(indicators.get("macd_histogram"), 4))
+    bollinger_col.metric("BB bandwidth", format_decimal(indicators.get("bollinger_bandwidth"), 4))
+    vol_col.metric("Volatility 20", format_decimal(indicators.get("volatility_20"), 4))
+
+    with st.expander("Full indicator details"):
+        st.json(indicators)
+
+    latest_candle = data.get("latest_candle")
+    if latest_candle:
+        with st.expander("Latest candle"):
+            st.json(latest_candle)
+
+
+def render_hybrid_answer(data: dict[str, Any], api_sources: list[str]) -> None:
+    st.subheader("Ollama Analysis")
+    st.write(data.get("answer") or "No answer returned.")
+    st.caption(f"Model: {data.get('model', 'N/A')}")
+
+    context_count = data.get("retrieved_context_count")
+    if context_count is not None:
+        st.caption(f"Retrieved context chunks: {context_count}")
+
+    st.markdown("**Retrieved sources**")
+    render_sources(data.get("retrieved_sources") or [])
+
+    with st.expander("Backend sources"):
+        render_sources(api_sources)
 
 
 def main() -> None:
-    st.set_page_config(page_title="Web3 AI System", layout="wide")
-    st.title("Web3 AI System")
-    st.caption("Hybrid architecture with separated insight and prediction engines.")
-
-    app = build_application()
+    st.set_page_config(page_title="Web3 Finance LLM", layout="wide")
+    st.title("Web3 Finance LLM")
+    st.caption("Crypto market insights powered by FastAPI, live market data, technical indicators, RAG, and local Ollama.")
 
     with st.sidebar:
-        asset = st.selectbox("Asset", ["BTC", "ETH", "SOL", "MATIC"], index=0)
-        horizon_days = st.slider("Forecast horizon (days)", min_value=1, max_value=14, value=3)
+        st.markdown("### Backend")
+        st.code(BACKEND_BASE_URL)
+        if st.button("Check backend health"):
+            try:
+                with st.spinner("Checking backend..."):
+                    health_payload = call_backend("GET", "/health")
+                st.success("Backend is reachable.")
+                st.json(health_payload.get("data", {}))
+            except BackendApiError as exc:
+                st.error(str(exc))
 
-    query = st.text_area(
+        st.markdown("### Query")
+        symbol = st.selectbox("Symbol", SYMBOLS, index=0)
+        timeframe = st.selectbox("Timeframe", TIMEFRAMES, index=0)
+        limit = st.slider("Candle limit", min_value=50, max_value=300, value=120, step=10)
+
+    question = st.text_area(
         "Ask a market question",
-        placeholder="Example: Predict ETH trend for the next 3 days and explain the current drivers.",
-        height=120,
+        value="Why is BTC moving today and what is the short-term risk?",
+        height=110,
     )
 
-    if st.button("Run analysis", type="primary") and query.strip():
-        request = QueryRequest(user_query=query.strip(), asset=asset, horizon_days=horizon_days)
-        try:
-            response = app.handle_query(request)
-        except Exception as exc:
-            st.error(str(exc))
-            st.info("Make sure dependencies are installed and OPENAI_API_KEY is configured.")
-            return
+    market_tab, basic_tab, hybrid_tab = st.tabs(["Market", "Analyze Basic", "Hybrid Analyze"])
 
-        st.subheader(f"Route selected: {response.route}")
+    with market_tab:
+        if st.button("Load market snapshot", type="primary"):
+            try:
+                with st.spinner("Fetching Binance and CoinGecko market data..."):
+                    payload = call_backend("GET", f"/market/{symbol}")
+                render_market_snapshot(payload.get("data") or {})
+                with st.expander("Sources"):
+                    render_sources(payload.get("sources") or [])
+            except BackendApiError as exc:
+                st.error(str(exc))
 
-        if response.prediction:
-            st.markdown("### Prediction")
-            st.write(response.prediction)
+    with basic_tab:
+        if st.button("Run basic technical analysis", type="primary"):
+            body = {"symbol": symbol, "timeframe": timeframe, "limit": limit}
+            try:
+                with st.spinner("Fetching candles and calculating indicators..."):
+                    payload = call_backend("POST", "/analyze-basic", body)
+                render_indicators(payload.get("data") or {})
+                with st.expander("Sources"):
+                    render_sources(payload.get("sources") or [])
+            except BackendApiError as exc:
+                st.error(str(exc))
 
-        if response.explanation:
-            st.markdown("### Explanation")
-            st.write(response.explanation)
+    with hybrid_tab:
+        disabled = not question.strip()
+        if st.button("Run hybrid analysis", type="primary", disabled=disabled):
+            body = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "limit": limit,
+                "question": question.strip(),
+            }
+            try:
+                with st.spinner("Running market analysis, RAG retrieval, and Ollama generation..."):
+                    payload = call_backend("POST", "/analyze", body)
+                data = payload.get("data") or {}
+                render_indicators(data)
+                render_hybrid_answer(data, payload.get("sources") or [])
+            except BackendApiError as exc:
+                st.error(str(exc))
 
-        st.markdown("### Final Output")
-        st.write(response.final_output)
-
-        if response.sources:
-            st.markdown("**Retrieved context**")
-            for source in response.sources:
-                st.write(f"- {source}")
-
-        if response.metadata:
-            st.markdown("**Metadata**")
-            st.json(response.metadata)
+        if disabled:
+            st.info("Enter a question before running hybrid analysis.")
 
 
 if __name__ == "__main__":

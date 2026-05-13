@@ -1,0 +1,91 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# JavaScript/frontend build artifacts
+node_modules/
+dist/
+build/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs/temp
+logs/
+*.log
+tmp/
+temp/
+
+# Generated local data and databases
+storage/
+**/storage/
+chroma/
+**/chroma/
+chroma_db/
+**/chroma_db/
+*.sqlite3
+*.sqlite
+*.db
+*.duckdb
+*.parquet
+*.faiss
+*.index
+*.hnsw
+
+# Local vector stores and generated embeddings
+**/chroma_insight/
+**/.chroma/
+**/vector_store/
+**/vectorstore/
+**/embeddings/
+**/generated_embeddings/
+
+# RAG source PDFs: commit only the small demo sample allowlisted below.
+rag/raw/*.pdf
+!rag/raw/ai-x-crypto-latest-data-and-developments.pdf
+!rag/raw/exploring-tokenomics-models-and-developments.pdf
+!rag/raw/monthly-market-insights-2026-02.pdf
+!rag/raw/spot-etfs-in-crypto-markets.pdf
+!rag/raw/understanding-the-rise-of-memecoins.pdf
+
+# Local model/runtime artifacts
+models/
+model_cache/
+ollama/
+.ollama/
+*.bin
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.onnx
+
+# Local Codex/app configuration
+.codex/
+
+# Unrelated local workspaces in this folder
+crypto-ai-dashboard/
+ragflow/
+obsidain vault/

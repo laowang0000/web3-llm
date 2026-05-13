@@ -10,9 +10,10 @@ class Settings:
     max_retrieved_documents: int = 3
     base_dir: Path = Path(__file__).resolve().parent.parent
     insight_data_dir: Path = base_dir / "data" / "insight_sources"
+    rag_raw_dir: Path = base_dir.parent / "rag" / "raw"
     chroma_persist_dir: Path = base_dir / "storage" / "chroma_insight"
-    embedding_model: str = "text-embedding-3-small"
-    chat_model: str = "gpt-4.1-mini"
+    embedding_model: str = "nomic-embed-text"
+    chat_model: str = "qwen3.6:latest"
     chunk_size: int = 900
     chunk_overlap: int = 150
 
