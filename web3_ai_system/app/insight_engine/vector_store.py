@@ -34,5 +34,8 @@ class InsightVectorStore:
             self.store.add_documents(documents)
         return self.store._collection.count()
 
+    def count(self) -> int:
+        return self.store._collection.count()
+
     def as_retriever(self, k: int = 4):
         return self.store.as_retriever(search_kwargs={"k": k})

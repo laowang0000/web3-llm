@@ -14,22 +14,21 @@ class InsightService:
     def __init__(self) -> None:
         embedding_settings = get_embedding_settings()
         embeddings = build_embeddings(embedding_settings.model)
-        loader = build_default_loader()
-        chunker = InsightChunker(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-        )
-
-        documents = loader.load()
-        chunks = chunker.split(documents)
-
         vector_store = InsightVectorStore(
             persist_directory=settings.chroma_persist_dir,
             embeddings=embeddings,
             collection_name=self._collection_name(embedding_settings.provider, embedding_settings.model),
         )
-        if chunks:
-            vector_store.index_documents(chunks)
+        if vector_store.count() == 0:
+            loader = build_default_loader()
+            chunker = InsightChunker(
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
+            )
+            documents = loader.load()
+            chunks = chunker.split(documents)
+            if chunks:
+                vector_store.index_documents(chunks)
 
         self.retriever = TopKInsightRetriever(
             vector_store=vector_store,

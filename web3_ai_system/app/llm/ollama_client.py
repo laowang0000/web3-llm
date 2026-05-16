@@ -20,6 +20,8 @@ class OllamaSettings:
     base_url: str
     model: str
     timeout_seconds: float = 60.0
+    num_predict: int | None = None
+    think: bool = False
 
 
 def _load_environment() -> None:
@@ -34,6 +36,8 @@ def get_ollama_settings() -> OllamaSettings:
         base_url=os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).rstrip("/"),
         model=os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
         timeout_seconds=float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60")),
+        num_predict=int(os.getenv("OLLAMA_NUM_PREDICT", "0")) or None,
+        think=os.getenv("OLLAMA_THINK", "false").strip().lower() in {"1", "true", "yes"},
     )
 
 
@@ -90,7 +94,10 @@ class OllamaChatClient:
             "model": self.settings.model,
             "messages": messages,
             "stream": False,
+            "think": self.settings.think,
         }
+        if self.settings.num_predict:
+            payload["options"] = {"num_predict": self.settings.num_predict}
 
         try:
             with httpx.Client(timeout=self.settings.timeout_seconds) as client:
@@ -112,4 +119,3 @@ class OllamaChatClient:
         if not content:
             raise OllamaClientError("Ollama response did not contain message.content.")
         return str(content).strip()
-
