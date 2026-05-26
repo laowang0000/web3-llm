@@ -27,12 +27,26 @@ def _check_success(name: str, response: httpx.Response, payload: dict[str, Any])
     return success
 
 
+def _check_prediction(response: httpx.Response, payload: dict[str, Any]) -> bool:
+    data = payload.get("data") or {}
+    success = response.status_code < 400 and payload.get("success") is True and bool(data.get("predicted_trend"))
+    detail = f"HTTP {response.status_code}"
+    if success:
+        detail = f"{detail}; predicted_trend={data.get('predicted_trend')}"
+    else:
+        detail = f"{detail}; {payload.get('error') or payload}"
+    _print_result("/predict", success, detail)
+    return success
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke test the Web3 Finance LLM backend.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="FastAPI base URL")
     parser.add_argument("--symbol", default="BTCUSDT", help="Market symbol to test")
     parser.add_argument("--timeframe", default="1h", help="Candle timeframe")
     parser.add_argument("--limit", type=int, default=120, help="Candle limit")
+    parser.add_argument("--prediction-limit", type=int, default=300, help="Candle limit for /predict")
+    parser.add_argument("--horizon-days", type=int, default=3, help="Prediction horizon")
     args = parser.parse_args()
 
     checks: list[bool] = []
@@ -68,6 +82,19 @@ def main() -> int:
         )
         checks.append(_check_success("/analyze", response, payload))
 
+        response, payload = _request(
+            client,
+            "POST",
+            "/predict",
+            {
+                "symbol": args.symbol,
+                "timeframe": "1d",
+                "horizon_days": args.horizon_days,
+                "limit": args.prediction_limit,
+            },
+        )
+        checks.append(_check_prediction(response, payload))
+
     if all(checks):
         print("Smoke test completed successfully.")
         return 0
@@ -78,4 +105,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

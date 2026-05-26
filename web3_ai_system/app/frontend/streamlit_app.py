@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import httpx
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -168,12 +169,88 @@ def render_hybrid_answer(data: dict[str, Any], api_sources: list[str]) -> None:
         render_sources(api_sources)
 
 
+def render_live_news(news_data: dict[str, Any]) -> None:
+    st.subheader("Live News")
+
+    warnings = news_data.get("warnings") or []
+    for warning in warnings:
+        st.caption(warning)
+
+    articles = news_data.get("articles") or []
+    if not articles:
+        st.info("No live articles returned for this symbol.")
+        return
+
+    for article in articles:
+        title = article.get("title") or "Untitled article"
+        source = article.get("source") or article.get("provider") or "unknown source"
+        published_at = article.get("published_at") or "unknown time"
+        st.markdown(f"**{title}**")
+        st.caption(f"{article.get('provider', 'news')} | {source} | {published_at}")
+        description = article.get("description") or article.get("snippet")
+        if description:
+            st.write(description)
+        url = article.get("url")
+        if url:
+            st.link_button("Open source", url)
+
+
+def render_prediction(data: dict[str, Any]) -> None:
+    st.subheader("Prediction Engine")
+
+    trend = data.get("predicted_trend") or "N/A"
+    probability_up = data.get("probability_up")
+    probability_down = data.get("probability_down")
+
+    trend_col, up_col, down_col, model_col = st.columns(4)
+    trend_col.metric("Predicted trend", trend)
+    up_col.metric("Probability UP", format_compact_number(probability_up, suffix=""))
+    down_col.metric("Probability DOWN", format_compact_number(probability_down, suffix=""))
+    model_col.metric("Model", data.get("model_name") or "N/A")
+
+    metrics = data.get("metrics")
+    if metrics:
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Accuracy", format_decimal(metrics.get("accuracy"), 4))
+        metric_cols[1].metric("Precision", format_decimal(metrics.get("precision"), 4))
+        metric_cols[2].metric("Recall", format_decimal(metrics.get("recall"), 4))
+        metric_cols[3].metric("F1", format_decimal(metrics.get("f1"), 4))
+        st.caption(f"Metric type: {metrics.get('metric_type', 'demo_backtest')}")
+    else:
+        st.info("Model metrics are not available for this run. The backend used a transparent fallback.")
+
+    features = data.get("features") or []
+    if features:
+        st.markdown("**Features used**")
+        st.write(", ".join(features))
+
+    notes = data.get("notes") or []
+    for note in notes:
+        st.caption(note)
+
+    chart_data = data.get("chart_data") or []
+    if chart_data:
+        chart_frame = pd.DataFrame(chart_data)
+        chart_frame["timestamp"] = pd.to_datetime(chart_frame["timestamp"], errors="coerce")
+        chart_frame = chart_frame.dropna(subset=["timestamp"]).set_index("timestamp")
+
+        st.subheader("Visualisation")
+        st.line_chart(chart_frame[["close"]])
+        st.line_chart(chart_frame[["rsi"]])
+
+    st.warning(data.get("disclaimer") or "This prediction is for academic demonstration only and is not financial advice.")
+
+
 def main() -> None:
-    st.set_page_config(page_title="Web3 Finance LLM", layout="wide")
-    st.title("Web3 Finance LLM")
-    st.caption("Crypto market insights powered by FastAPI, live market data, technical indicators, RAG, and local Ollama.")
+    st.set_page_config(page_title="Backend Functional Test Console", layout="wide")
+    st.title("Backend Functional Test Console")
+    st.caption(
+        "Testing and fallback UI for FastAPI endpoints. Use the polished React UI for final demo screenshots and presentation."
+    )
 
     with st.sidebar:
+        st.markdown("### Purpose")
+        st.info("Use this Streamlit console to verify backend functions quickly. It does not contain separate prediction or RAG logic.")
         st.markdown("### Backend")
         st.code(BACKEND_BASE_URL)
         if st.button("Check backend health"):
@@ -189,6 +266,7 @@ def main() -> None:
         symbol = st.selectbox("Symbol", SYMBOLS, index=0)
         timeframe = st.selectbox("Timeframe", TIMEFRAMES, index=0)
         limit = st.slider("Candle limit", min_value=50, max_value=300, value=120, step=10)
+        horizon_days = st.slider("Prediction horizon", min_value=1, max_value=14, value=3, step=1)
 
     question = st.text_area(
         "Ask a market question",
@@ -196,7 +274,9 @@ def main() -> None:
         height=110,
     )
 
-    market_tab, basic_tab, hybrid_tab = st.tabs(["Market", "Analyze Basic", "Hybrid Analyze"])
+    market_tab, basic_tab, hybrid_tab, live_news_tab, prediction_tab = st.tabs(
+        ["GET /market", "POST /analyze-basic", "POST /analyze", "GET /news", "POST /predict"]
+    )
 
     with market_tab:
         if st.button("Load market snapshot", type="primary"):
@@ -236,11 +316,40 @@ def main() -> None:
                 data = payload.get("data") or {}
                 render_indicators(data)
                 render_hybrid_answer(data, payload.get("sources") or [])
+                render_live_news(data.get("live_news") or {})
             except BackendApiError as exc:
                 st.error(str(exc))
 
         if disabled:
             st.info("Enter a question before running hybrid analysis.")
+
+    with live_news_tab:
+        if st.button("Load live news", type="primary"):
+            try:
+                with st.spinner("Fetching Marketaux and GNews articles..."):
+                    payload = call_backend("GET", f"/news/{symbol}?limit=6")
+                render_live_news(payload.get("data") or {})
+                with st.expander("Sources"):
+                    render_sources(payload.get("sources") or [])
+            except BackendApiError as exc:
+                st.error(str(exc))
+
+    with prediction_tab:
+        if st.button("Run prediction", type="primary"):
+            body = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "horizon_days": horizon_days,
+                "limit": max(limit, 300 if timeframe == "1d" else 120),
+            }
+            try:
+                with st.spinner("Fetching OHLCV data, calculating indicators, and running trend classification..."):
+                    payload = call_backend("POST", "/predict", body)
+                render_prediction(payload.get("data") or {})
+                with st.expander("Sources"):
+                    render_sources(payload.get("sources") or [])
+            except BackendApiError as exc:
+                st.error(str(exc))
 
 
 if __name__ == "__main__":

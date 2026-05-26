@@ -4,11 +4,14 @@ Final Year Project MVP for local cryptocurrency market insight generation and qu
 
 The system combines:
 - FastAPI backend endpoints for health checks, chat, market data, and analysis
-- Streamlit frontend connected to the FastAPI backend
+- Streamlit functional testing and fallback UI connected to the FastAPI backend
+- React + Tailwind final presentation UI connected to the same FastAPI backend
 - public read-only Binance and CoinGecko market data
 - technical indicators for basic market analysis
+- short-term trend classification through a prediction engine
 - local Ollama chat and embedding models
 - local RAG with Chroma
+- optional live news augmentation through Marketaux and GNews
 - RAG pre-indexing script
 - backend smoke test script
 
@@ -22,6 +25,12 @@ web3_ai_system/
 |-- requirements.txt
 |-- .env.example
 |-- run_streamlit.py
+|-- start_demo.bat
+|-- start_final_ui.bat
+|-- scripts/
+|   |-- start_final_ui.ps1
+|   |-- start_demo.ps1
+|   `-- stop_demo.ps1
 |-- app/
 |   |-- __init__.py
 |   |-- api/
@@ -58,6 +67,11 @@ web3_ai_system/
 |   |   |-- binance_client.py
 |   |   |-- coingecko_client.py
 |   |   `-- service.py
+|   |-- news_data/
+|   |   |-- __init__.py
+|   |   |-- gnews_client.py
+|   |   |-- marketaux_client.py
+|   |   `-- service.py
 |   |-- prediction_engine/
 |   |   |-- __init__.py
 |   |   |-- data_loader.py
@@ -82,6 +96,15 @@ web3_ai_system/
     `-- insight_sources/
 ```
 
+## Final MVP scope
+
+This FYP is implemented as a dual-engine academic MVP:
+
+1. Insight Engine: local Ollama + RAG + Chroma over local crypto reports, news notes, and market context documents. This powers `/analyze` and retrieved-source explanations.
+2. Prediction Engine: Binance OHLCV candles + RSI, EMA, MACD, Bollinger Bands, volatility, and XGBoost-based short-term trend classification. This powers `/predict`, the Streamlit testing tab, and the final React demo UI.
+
+The prototype does not implement wallet tracking, live on-chain transaction analysis, Dune, Arkham, CryptoQuant, Etherscan, Alchemy, or persistent social/news ingestion. It can optionally fetch current article snippets from Marketaux and GNews for `/news` and `/analyze` prompt context when local API keys are present.
+
 ## Responsibilities
 
 - `app/config.py`: Centralized settings and constants.
@@ -92,8 +115,10 @@ web3_ai_system/
 - `app/router/intent_classifier.py`: Rule-based query routing with optional LLM fallback.
 - `app/insight_engine/`: RAG pipeline for explainable crypto insights.
 - `app/prediction_engine/`: Pure numerical time-series prediction pipeline.
-- `app/frontend/streamlit_app.py`: Streamlit UI that calls `/market/{symbol}`, `/analyze-basic`, and `/analyze`.
-- `run_streamlit.py`: Convenience launcher for the UI.
+- `app/news_data/`: Optional Marketaux and GNews live article retrieval for `/news` and `/analyze`.
+- `app/frontend/streamlit_app.py`: Streamlit functional test console that calls `/market/{symbol}`, `/analyze-basic`, `/news/{symbol}`, `/analyze`, and `/predict`.
+- `run_streamlit.py`: Convenience launcher for the Streamlit test console.
+- `../crypto-ai-dashboard`: Final polished React presentation UI. It does not duplicate backend logic and only consumes FastAPI JSON responses.
 
 ## Recover from a fresh GitHub clone
 
@@ -117,7 +142,71 @@ python run_streamlit.py
 
 Expected local URLs:
 - FastAPI: `http://127.0.0.1:8000`
-- Streamlit: `http://localhost:8501`
+- Streamlit functional test console: `http://localhost:8501`
+- Final React UI: `http://127.0.0.1:5173`
+
+For the final presentation UI from a fresh clone, use:
+
+```powershell
+cd web3-llm\web3_ai_system
+.\start_final_ui.bat
+```
+
+This starts FastAPI and the React UI. It installs frontend dependencies with `npm ci` when `node_modules` is missing.
+
+## Final React presentation UI launcher
+
+For final demo screenshots and presentation, use the polished React UI:
+
+```powershell
+cd "D:\Coding\web3 llm\web3_ai_system"
+.\start_final_ui.bat
+```
+
+The launcher checks `.env`, Python `.venv`, Python packages, Ollama, required Ollama models, RAG indexing, and React `node_modules`, then starts:
+
+```text
+Final React UI: http://127.0.0.1:5173
+FastAPI docs:    http://127.0.0.1:8000/docs
+```
+
+The React UI only calls FastAPI JSON endpoints. It does not implement separate prediction, RAG, market-data, or LLM logic.
+
+## Streamlit functional test launcher
+
+Use Streamlit for backend verification and as a fallback UI, not for final screenshots. The launcher checks the local environment, starts Ollama if possible, verifies/pulls the required Ollama models, indexes RAG sources, and opens FastAPI and Streamlit in separate PowerShell windows.
+
+From `D:\Coding\web3 llm\web3_ai_system`:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\start_demo.ps1
+```
+
+Or double-click:
+
+```text
+start_demo.bat
+```
+
+The launcher prints these URLs:
+
+```text
+FastAPI docs: http://127.0.0.1:8000/docs
+Streamlit:    http://localhost:8501
+```
+
+To stop FastAPI and Streamlit:
+
+```powershell
+.\scripts\stop_demo.ps1
+```
+
+Notes:
+- The launcher does not hardcode or require API keys.
+- Ollama is left running when `stop_demo.ps1` is used because it may be shared by other local projects.
+- If `.venv` was copied from another machine and no longer works, recreate it with the manual Quick start commands below.
+- Real verification must be done in your local Windows PowerShell because the demo depends on local Ollama, local models, `.venv`, and local ports.
 
 ## Quick start
 
@@ -146,7 +235,7 @@ Start the FastAPI backend:
 python -m uvicorn app.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In another terminal, start the Streamlit demo UI:
+In another terminal, start the Streamlit functional test console:
 
 ```powershell
 python run_streamlit.py
@@ -178,6 +267,7 @@ The UI supports:
 - market snapshot from `GET /market/{symbol}`
 - technical indicator output from `POST /analyze-basic`
 - hybrid market + RAG + Ollama explanation from `POST /analyze`
+- short-term trend classification from `POST /predict`
 
 ## FastAPI backend with Ollama
 
@@ -198,6 +288,16 @@ ollama pull nomic-embed-text
 ```
 
 If you prefer another local chat model, update `OLLAMA_MODEL` in `.env`. If you prefer another local embedding model, update `OLLAMA_EMBED_MODEL`.
+
+Optional live news keys:
+
+```powershell
+MARKETAUX_API_TOKEN=your_marketaux_token_here
+GNEWS_API_KEY=your_gnews_key_here
+NEWS_MAX_ARTICLES=6
+```
+
+These keys are only used for live article snippets in `/news/{symbol}` and the Hybrid Analyze flow. They are not used by the prediction engine.
 
 3. Start the FastAPI backend from `D:\Coding\web3 llm\web3_ai_system`:
 
@@ -398,6 +498,51 @@ Expected shape:
 }
 ```
 
+## Prediction endpoint
+
+`POST /predict` trains a small demo XGBoost trend classifier on recent OHLCV candles and technical indicators, then predicts whether the latest row is more likely to trend `UP` or `DOWN` over the selected horizon. If the model cannot be trained reliably for the selected data, the endpoint returns a transparent technical-indicator fallback with `metrics` set to `null`.
+
+PowerShell example:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/predict `
+  -H "Content-Type: application/json" `
+  -d "{\"symbol\":\"BTCUSDT\",\"timeframe\":\"1d\",\"horizon_days\":3,\"limit\":300}"
+```
+
+Expected response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "symbol": "BTCUSDT",
+    "timeframe": "1d",
+    "horizon_days": 3,
+    "predicted_trend": "UP",
+    "probability_up": 0.63,
+    "probability_down": 0.37,
+    "model_name": "XGBoostTrendClassifier",
+    "metrics": {
+      "accuracy": 0.58,
+      "precision": 0.61,
+      "recall": 0.55,
+      "f1": 0.57,
+      "metric_type": "demo_backtest"
+    },
+    "features": ["close", "volume", "rsi", "ema", "macd", "bollinger", "volatility"],
+    "disclaimer": "This prediction is for academic demonstration only and is not financial advice."
+  },
+  "error": null,
+  "sources": ["binance:/api/v3/klines"]
+}
+```
+
+Demo symbols:
+- `BTCUSDT`
+- `ETHUSDT`
+- `SOLUSDT`
+
 ## Demo verification scripts
 
 ### Pre-index RAG before demo
@@ -460,6 +605,7 @@ Expected pass output:
 [PASS] /market/BTCUSDT: HTTP 200
 [PASS] /analyze-basic: HTTP 200
 [PASS] /analyze: HTTP 200
+[PASS] /predict: HTTP 200; predicted_trend=UP
 Smoke test completed successfully.
 ```
 
@@ -500,6 +646,8 @@ Each source can contain `.txt`, `.md`, or `.pdf` files. The engine:
 - retrieves top-k chunks
 - passes retrieved context into Ollama for grounded answers
 
+When Marketaux or GNews keys are present, `/analyze` also adds a small live-news context block to the LLM prompt. This is RAG-style evidence augmentation, but it is not persisted into Chroma unless you manually save articles into the local RAG folders and re-index.
+
 OpenAI embeddings are only an optional fallback. To use them explicitly, set `EMBEDDING_PROVIDER=openai` and configure your OpenAI environment separately.
 
 ## Prediction engine
@@ -511,14 +659,27 @@ The prediction engine uses:
 - forward-shifted labels for `UP` and `DOWN` trend prediction
 
 Core features include:
-- `price`
+- `close`
 - `volume`
 - `RSI`
 - `EMA`
 - `MACD`
+- `Bollinger Bandwidth`
+- `20-candle volatility`
 
 Leakage is reduced by:
 - sorting data by timestamp before processing
 - computing indicators from current and past rows only
 - creating the target from future price movement after features are built
 - using a time-series split instead of random shuffling
+
+## Known limitations
+
+- This is an academic prototype and not financial advice.
+- Prediction metrics are demo backtest metrics from the latest requested candle window, not a production trading evaluation.
+- The prediction engine does not guarantee profitability or high accuracy.
+- RAG quality depends on the local documents that have been indexed.
+- `/analyze` requires Ollama to be running and the configured local model to be available.
+- Market data comes from public read-only Binance/CoinGecko endpoints and may fail during provider downtime or rate limiting.
+- No real on-chain Ethereum, Solana, Polygon, wallet, or transaction tracking is implemented.
+- No persistent social media or news ingestion pipeline is implemented. Live news is fetched on demand from Marketaux/GNews only when local keys are configured.

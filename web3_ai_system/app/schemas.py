@@ -28,9 +28,11 @@ class PredictionResult:
     asset: str
     horizon_days: int
     predicted_trend: str
-    probability_up: float
+    probability_up: float | None
     model_name: str
-    metrics: dict[str, Any] = field(default_factory=dict)
+    probability_down: float | None = None
+    metrics: dict[str, Any] | None = None
+    features: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -93,20 +93,56 @@ def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFr
     if horizon_days < 1:
         raise ValueError("horizon_days must be at least 1")
 
-    features = frame.copy()
-    features["return_1"] = features["price"].pct_change()
-    features["return_3"] = features["price"].pct_change(periods=3)
+    features = frame.copy().sort_values("timestamp").reset_index(drop=True)
+    if "close" not in features.columns and "price" in features.columns:
+        features["close"] = features["price"]
+    if "price" not in features.columns and "close" in features.columns:
+        features["price"] = features["close"]
+    if "close" not in features.columns:
+        raise ValueError("Feature frame requires either close or price.")
+
+    for column in ["close", "price", "volume"]:
+        if column in features.columns:
+            features[column] = pd.to_numeric(features[column], errors="coerce")
+
+    features["return_1"] = features["close"].pct_change()
+    features["return_3"] = features["close"].pct_change(periods=3)
     features["volume_change_1"] = features["volume"].pct_change()
 
-    features["rsi"] = compute_rsi(features["price"], window=14)
-    features["ema"] = features["price"].ewm(span=12, adjust=False).mean()
-    features["ema_26"] = features["price"].ewm(span=26, adjust=False).mean()
-    features["macd"] = features["ema"] - features["ema_26"]
-    features["macd_signal"] = features["macd"].ewm(span=9, adjust=False).mean()
-    features["macd_hist"] = features["macd"] - features["macd_signal"]
+    if "rsi" not in features.columns:
+        features["rsi"] = compute_rsi(features["close"], window=14)
+    if "ema_12" not in features.columns:
+        features["ema_12"] = features["close"].ewm(span=12, adjust=False).mean()
+    features["ema"] = features["ema_12"]
+    if "ema_20" not in features.columns:
+        features["ema_20"] = features["close"].ewm(span=20, adjust=False).mean()
+    if "ema_26" not in features.columns:
+        features["ema_26"] = features["close"].ewm(span=26, adjust=False).mean()
+    if "ema_50" not in features.columns:
+        features["ema_50"] = features["close"].ewm(span=50, adjust=False).mean()
+    if "macd" not in features.columns:
+        features["macd"] = features["ema_12"] - features["ema_26"]
+    if "macd_signal" not in features.columns:
+        features["macd_signal"] = features["macd"].ewm(span=9, adjust=False).mean()
+    if "macd_histogram" not in features.columns:
+        features["macd_histogram"] = features["macd"] - features["macd_signal"]
+    features["macd_hist"] = features["macd_histogram"]
 
-    features["future_price"] = features["price"].shift(-horizon_days)
-    features["target"] = (features["future_price"] > features["price"]).astype(int)
+    if "bollinger_bandwidth" not in features.columns:
+        upper, middle, lower = compute_bollinger_bands(features["close"], window=20)
+        features["bollinger_upper"] = upper
+        features["bollinger_middle"] = middle
+        features["bollinger_lower"] = lower
+        features["bollinger_bandwidth"] = (
+            (features["bollinger_upper"] - features["bollinger_lower"])
+            / features["bollinger_middle"]
+        )
+    if "volatility_20" not in features.columns:
+        features["volatility_20"] = features["return_1"].rolling(window=20, min_periods=20).std()
+
+    features["future_price"] = features["close"].shift(-horizon_days)
+    features = features.dropna(subset=["future_price"]).copy()
+    features["target"] = (features["future_price"] > features["close"]).astype(int)
     features["target_label"] = features["target"].map({1: "UP", 0: "DOWN"})
 
     model_frame = features.dropna().reset_index(drop=True)
@@ -115,14 +151,18 @@ def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFr
 
 def get_feature_columns() -> list[str]:
     return [
-        "price",
+        "close",
         "volume",
         "rsi",
-        "ema",
+        "ema_12",
+        "ema_20",
+        "ema_50",
         "macd",
+        "macd_signal",
+        "macd_histogram",
+        "bollinger_bandwidth",
+        "volatility_20",
         "return_1",
         "return_3",
         "volume_change_1",
-        "macd_signal",
-        "macd_hist",
     ]

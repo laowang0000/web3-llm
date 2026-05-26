@@ -5,9 +5,14 @@ $ErrorActionPreference = "Stop"
 
 # Get the directory of this script
 $ScriptDir = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
+$RequirementsPath = Join-Path $ScriptDir "requirements.txt"
+$EnsureVenvScript = Join-Path $ScriptDir "scripts\ensure_venv.ps1"
 
-# Activate virtual environment
-Write-Host "Activating virtual environment..." -ForegroundColor Green
+. $EnsureVenvScript
+
+# Ensure and activate virtual environment
+Write-Host "Checking virtual environment..." -ForegroundColor Green
+$VenvPython = Ensure-ProjectVenv -ProjectRoot $ScriptDir -RequirementsPath $RequirementsPath
 & "$ScriptDir\.venv\Scripts\Activate.ps1"
 
 # Check if OPENAI_API_KEY is set

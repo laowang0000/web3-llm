@@ -1,9 +1,10 @@
 import pandas as pd
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from xgboost import XGBClassifier
 
 
 class XGBoostTrendClassifier:
-    model_name = "xgboost_trend_classifier"
+    model_name = "XGBoostTrendClassifier"
 
     def __init__(self) -> None:
         self.model = XGBClassifier(
@@ -32,15 +33,9 @@ class XGBoostTrendClassifier:
         predictions = (probabilities >= 0.5).astype(int)
         actual = test_frame["target"]
 
-        accuracy = float((predictions == actual).mean())
-        precision = float(
-            ((predictions == 1) & (actual == 1)).sum() / max((predictions == 1).sum(), 1)
-        )
-        recall = float(
-            ((predictions == 1) & (actual == 1)).sum() / max((actual == 1).sum(), 1)
-        )
         return {
-            "accuracy": round(accuracy, 4),
-            "precision_up": round(precision, 4),
-            "recall_up": round(recall, 4),
+            "accuracy": round(float(accuracy_score(actual, predictions)), 4),
+            "precision": round(float(precision_score(actual, predictions, zero_division=0)), 4),
+            "recall": round(float(recall_score(actual, predictions, zero_division=0)), 4),
+            "f1": round(float(f1_score(actual, predictions, zero_division=0)), 4),
         }

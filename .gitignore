@@ -11,6 +11,8 @@
 
 # Python
 .venv/
+.venv.broken-*/
+.pycache_check/
 venv/
 env/
 __pycache__/
@@ -84,8 +86,16 @@ ollama/
 
 # Local Codex/app configuration
 .codex/
+.agents/
+skills-lock.json
 
 # Unrelated local workspaces in this folder
-crypto-ai-dashboard/
 ragflow/
 obsidain vault/
+
+# Final React demo UI is tracked, but its generated artifacts stay local.
+crypto-ai-dashboard/node_modules/
+crypto-ai-dashboard/dist/
+crypto-ai-dashboard/build/
+crypto-ai-dashboard/*.log
+crypto-ai-dashboard/coverage/
