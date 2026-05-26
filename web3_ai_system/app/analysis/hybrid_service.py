@@ -39,12 +39,12 @@ class HybridAnalysisService:
 
         retrieval_query = self._build_retrieval_query(market_data, question)
         documents = self.insight_service.retrieve(retrieval_query)
-        rag_context = self.insight_service.format_context(documents)
+        rag_context = self._clip_context(self.insight_service.format_context(documents), 1800)
         rag_sources = self.insight_service.source_labels(documents)
         retrieved_metadata = self.insight_service.chunk_metadata(documents)
 
         news_data, news_sources = self.news_service.fetch_relevant_news(symbol=market_data["symbol"], question=question)
-        news_context = self.news_service.format_context(news_data)
+        news_context = self._clip_context(self.news_service.format_context(news_data), 1000)
         news_source_labels = self.news_service.source_labels(news_data)
 
         prompt_context = self._build_prompt_context(market_data, rag_context, news_context)
@@ -54,8 +54,12 @@ class HybridAnalysisService:
                 system_prompt=self._system_prompt(),
                 context=prompt_context,
             )
+            model_name = self.llm.settings.model
+            generation_mode = "ollama"
         except OllamaClientError as exc:
-            raise HybridAnalysisServiceError(str(exc)) from exc
+            answer = self._fallback_answer(market_data, news_data, str(exc))
+            model_name = "backend-structured-fallback"
+            generation_mode = "backend_fallback"
 
         data = {
             "symbol": market_data["symbol"],
@@ -65,7 +69,8 @@ class HybridAnalysisService:
             "trend": market_data["trend"],
             "risk_flags": market_data["risk_flags"],
             "answer": answer,
-            "model": self.llm.settings.model,
+            "model": model_name,
+            "generation_mode": generation_mode,
             "retrieved_context_count": len(documents),
             "retrieved_sources": retrieved_metadata,
             "live_news": news_data,
@@ -73,6 +78,8 @@ class HybridAnalysisService:
             "live_news_warnings": news_data.get("warnings", []),
             "market": market_data.get("market", {}),
             "latest_candle": market_data.get("latest_candle", {}),
+            "source_warnings": market_data.get("source_warnings", []),
+            "data_mode": market_data.get("data_mode", "live"),
         }
         sources = list(dict.fromkeys(market_sources + rag_sources + news_sources + news_source_labels))
         return data, sources
@@ -127,4 +134,25 @@ class HybridAnalysisService:
             "If retrieved context or live news is insufficient, say that clearly. "
             "Separate observed data from interpretation. "
             "Do not provide financial advice, price targets, or unsupported causal claims."
+        )
+
+    def _clip_context(self, value: str, max_length: int) -> str:
+        text = " ".join((value or "").split())
+        if len(text) <= max_length:
+            return text
+        return f"{text[: max_length - 3]}..."
+
+    def _fallback_answer(self, market_data: dict[str, Any], news_data: dict[str, Any], reason: str) -> str:
+        warnings = market_data.get("source_warnings") or []
+        news_count = news_data.get("article_count", 0)
+        risk_flags = "; ".join(market_data.get("risk_flags") or ["No risk flags returned."])
+        return (
+            "Backend structured fallback answer: live LLM generation could not complete within the demo runtime. "
+            f"The latest backend market analysis for {market_data.get('symbol')} shows: {market_data.get('trend')} "
+            f"Key risk flags: {risk_flags}. "
+            f"Live news articles retrieved: {news_count}. "
+            f"Data mode: {market_data.get('data_mode', 'live')}. "
+            f"Provider warnings: {' | '.join(warnings) if warnings else 'none'}. "
+            f"Fallback reason: {reason}. "
+            "This is an academic system response and not financial advice."
         )
