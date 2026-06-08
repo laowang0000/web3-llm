@@ -10,10 +10,10 @@ export const sampleQueries = [
     question: "Why is BTC moving today and what is the short-term risk?",
   },
   {
-    label: "ETH momentum",
+    label: "ETH RAG evidence",
     engine: "insight",
     symbol: "ETHUSDT",
-    question: "Summarize ETH technical momentum using RSI, EMA and MACD.",
+    question: "Use RAG retrieved PDF documents and source-grounded context to analyze ETH market risk. Cite the retrieved sources and separate PDF evidence from live market indicators.",
   },
   {
     label: "SOL prediction",

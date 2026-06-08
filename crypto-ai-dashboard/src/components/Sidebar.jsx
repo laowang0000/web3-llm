@@ -3,6 +3,7 @@ import { Icon } from "./icons";
 const navItems = [
   { id: "insight", label: "Insight Engine", icon: "brain", description: "RAG + LLM answer" },
   { id: "prediction", label: "Prediction Engine", icon: "gauge", description: "Technical trend model" },
+  { id: "models", label: "Settings", icon: "layers", description: "Runtime status and model control" },
 ];
 
 function Sidebar({ activeEngine, onEngineChange }) {
@@ -44,7 +45,7 @@ function Sidebar({ activeEngine, onEngineChange }) {
       <div className="border-t border-line-soft p-4">
         <div className="rounded-[1.35rem] border border-accent-red/20 bg-accent-red/8 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-red">Academic Use</p>
-          <p className="mt-3 text-sm leading-6 text-ink-300">Outputs are explanatory demo results, not financial advice.</p>
+          <p className="mt-3 text-sm leading-6 text-ink-300">Outputs are explanatory academic results, not financial advice.</p>
         </div>
       </div>
     </aside>

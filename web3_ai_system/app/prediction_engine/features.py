@@ -89,9 +89,15 @@ def get_latest_indicator_snapshot(indicator_frame: pd.DataFrame) -> dict:
     }
 
 
-def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFrame:
-    if horizon_days < 1:
-        raise ValueError("horizon_days must be at least 1")
+def build_feature_frame(
+    frame: pd.DataFrame,
+    horizon_candles: int = 1,
+    horizon_days: int | None = None,
+) -> pd.DataFrame:
+    if horizon_days is not None:
+        horizon_candles = horizon_days
+    if horizon_candles < 1:
+        raise ValueError("horizon_candles must be at least 1")
 
     features = frame.copy().sort_values("timestamp").reset_index(drop=True)
     if "close" not in features.columns and "price" in features.columns:
@@ -101,13 +107,20 @@ def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFr
     if "close" not in features.columns:
         raise ValueError("Feature frame requires either close or price.")
 
-    for column in ["close", "price", "volume"]:
+    for column in ["open", "high", "low", "close", "price", "volume"]:
         if column in features.columns:
             features[column] = pd.to_numeric(features[column], errors="coerce")
 
     features["return_1"] = features["close"].pct_change()
-    features["return_3"] = features["close"].pct_change(periods=3)
-    features["volume_change_1"] = features["volume"].pct_change()
+    features["return_lag_1"] = features["return_1"].shift(1)
+    features["return_lag_2"] = features["return_1"].shift(2)
+    features["return_lag_3"] = features["return_1"].shift(3)
+    features["rolling_mean_return_5"] = features["return_1"].rolling(window=5, min_periods=5).mean()
+    features["rolling_mean_return_10"] = features["return_1"].rolling(window=10, min_periods=10).mean()
+    features["momentum_3"] = features["close"].pct_change(periods=3)
+    features["momentum_5"] = features["close"].pct_change(periods=5)
+    features["momentum_10"] = features["close"].pct_change(periods=10)
+    features["volume_change"] = features["volume"].pct_change()
 
     if "rsi" not in features.columns:
         features["rsi"] = compute_rsi(features["close"], window=14)
@@ -120,6 +133,11 @@ def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFr
         features["ema_26"] = features["close"].ewm(span=26, adjust=False).mean()
     if "ema_50" not in features.columns:
         features["ema_50"] = features["close"].ewm(span=50, adjust=False).mean()
+    features["ema_short"] = features["ema_12"]
+    features["ema_long"] = features["ema_50"]
+    features["ema_distance"] = (features["ema_short"] - features["ema_long"]) / features["close"]
+    features["close_to_ema_short"] = (features["close"] - features["ema_short"]) / features["close"]
+    features["close_to_ema_long"] = (features["close"] - features["ema_long"]) / features["close"]
     if "macd" not in features.columns:
         features["macd"] = features["ema_12"] - features["ema_26"]
     if "macd_signal" not in features.columns:
@@ -139,10 +157,32 @@ def build_feature_frame(frame: pd.DataFrame, horizon_days: int = 1) -> pd.DataFr
         )
     if "volatility_20" not in features.columns:
         features["volatility_20"] = features["return_1"].rolling(window=20, min_periods=20).std()
+    features["rolling_volatility_10"] = features["return_1"].rolling(window=10, min_periods=10).std()
 
-    features["future_price"] = features["close"].shift(-horizon_days)
-    features = features.dropna(subset=["future_price"]).copy()
-    features["target"] = (features["future_price"] > features["close"]).astype(int)
+    if {"high", "low"}.issubset(features.columns):
+        previous_close = features["close"].shift(1)
+        true_range = pd.concat(
+            [
+                features["high"] - features["low"],
+                (features["high"] - previous_close).abs(),
+                (features["low"] - previous_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        features["atr_14"] = true_range.rolling(window=14, min_periods=14).mean()
+        features["atr_14_pct"] = features["atr_14"] / features["close"]
+    else:
+        features["atr_14_pct"] = features["volatility_20"]
+
+    features["trend_strength_proxy"] = (
+        features["ema_distance"].abs()
+        + (features["macd_histogram"].abs() / features["close"])
+        + features["rolling_volatility_10"].fillna(0)
+    )
+
+    features["target_future_close"] = features["close"].shift(-horizon_candles)
+    features = features.dropna(subset=["target_future_close"]).copy()
+    features["target"] = (features["target_future_close"] > features["close"]).astype(int)
     features["target_label"] = features["target"].map({1: "UP", 0: "DOWN"})
 
     model_frame = features.dropna().reset_index(drop=True)
@@ -154,15 +194,27 @@ def get_feature_columns() -> list[str]:
         "close",
         "volume",
         "rsi",
-        "ema_12",
-        "ema_20",
-        "ema_50",
+        "ema_short",
+        "ema_long",
+        "ema_distance",
+        "close_to_ema_short",
+        "close_to_ema_long",
         "macd",
         "macd_signal",
         "macd_histogram",
         "bollinger_bandwidth",
         "volatility_20",
+        "rolling_volatility_10",
         "return_1",
-        "return_3",
-        "volume_change_1",
+        "rolling_mean_return_5",
+        "rolling_mean_return_10",
+        "return_lag_1",
+        "return_lag_2",
+        "return_lag_3",
+        "volume_change",
+        "momentum_3",
+        "momentum_5",
+        "momentum_10",
+        "atr_14_pct",
+        "trend_strength_proxy",
     ]

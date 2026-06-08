@@ -22,7 +22,7 @@ class InsightVectorStore:
             persist_directory=str(self.persist_directory),
         )
 
-    def index_documents(self, documents: list[Document], force: bool = False) -> int:
+    def index_documents(self, documents: list[Document], force: bool = False, batch_size: int = 32) -> int:
         if not documents:
             return self.store._collection.count()
         existing_count = self.store._collection.count()
@@ -31,7 +31,8 @@ class InsightVectorStore:
                 ids = self.store._collection.get(include=[])["ids"]
                 if ids:
                     self.store._collection.delete(ids=ids)
-            self.store.add_documents(documents)
+            for start in range(0, len(documents), batch_size):
+                self.store.add_documents(documents[start : start + batch_size])
         return self.store._collection.count()
 
     def count(self) -> int:

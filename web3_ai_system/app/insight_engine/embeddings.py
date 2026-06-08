@@ -22,6 +22,7 @@ class EmbeddingSettings:
     model: str
     base_url: str
     timeout_seconds: float
+    batch_size: int = 8
 
 
 def _load_environment() -> None:
@@ -42,6 +43,7 @@ def get_embedding_settings(model_name: str | None = None) -> EmbeddingSettings:
         model=model_name or default_model,
         base_url=os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).rstrip("/"),
         timeout_seconds=float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60")),
+        batch_size=max(1, int(os.getenv("OLLAMA_EMBED_BATCH_SIZE", "8"))),
     )
 
 
@@ -55,6 +57,13 @@ class OllamaEmbeddings(Embeddings):
         if not texts:
             return []
 
+        embeddings: list[list[float]] = []
+        for start in range(0, len(texts), self.settings.batch_size):
+            batch = texts[start : start + self.settings.batch_size]
+            embeddings.extend(self._embed_batch(batch))
+        return embeddings
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         payload = {"model": self.settings.model, "input": texts}
         try:
             with httpx.Client(timeout=self.settings.timeout_seconds) as client:

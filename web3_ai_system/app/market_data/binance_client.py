@@ -49,7 +49,11 @@ def get_binance_settings() -> BinanceSettings:
     _load_environment()
     return BinanceSettings(
         base_url=os.getenv("BINANCE_BASE_URL", DEFAULT_BINANCE_BASE_URL).rstrip("/"),
-        timeout_seconds=float(os.getenv("MARKET_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))),
+        timeout_seconds=float(
+            os.getenv("MARKET_REQUEST_TIMEOUT")
+            or os.getenv("MARKET_TIMEOUT_SECONDS")
+            or str(DEFAULT_TIMEOUT_SECONDS)
+        ),
     )
 
 
@@ -82,6 +86,21 @@ class BinanceClient:
             "symbol": payload["symbol"],
             "price": float(payload["price"]),
             "source": "binance:/api/v3/ticker/price",
+        }
+
+    def fetch_market_snapshot(self, symbol: str) -> dict[str, Any]:
+        normalized_symbol = symbol.strip().upper()
+        payload = self._get("/api/v3/ticker/24hr", {"symbol": normalized_symbol})
+        base_symbol = normalized_symbol[:-4] if normalized_symbol.endswith("USDT") else normalized_symbol
+        return {
+            "symbol": base_symbol,
+            "provider": "binance",
+            "price_usd": _optional_float(payload.get("lastPrice")),
+            "market_cap_usd": None,
+            "volume_24h_usd": _optional_float(payload.get("quoteVolume")),
+            "change_24h_percent": _optional_float(payload.get("priceChangePercent")),
+            "raw": payload,
+            "source": "binance:/api/v3/ticker/24hr",
         }
 
     def fetch_ohlcv(self, symbol: str, interval: str = "1h", limit: int = 120) -> pd.DataFrame:
@@ -153,3 +172,11 @@ class BinanceClient:
             ]
         ].reset_index(drop=True)
 
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

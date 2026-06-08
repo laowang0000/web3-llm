@@ -10,7 +10,7 @@ $VenvActivate = Join-Path $ProjectRoot ".venv\Scripts\Activate.ps1"
 $RequirementsPath = Join-Path $ProjectRoot "requirements.txt"
 $EnsureVenvScript = Join-Path $ScriptDir "ensure_venv.ps1"
 
-$ChatModel = "qwen3.6:latest"
+$ChatModel = "qwen3.5:9b"
 $EmbedModel = "nomic-embed-text"
 $FastApiUrl = "http://127.0.0.1:8000"
 $FastApiDocsUrl = "$FastApiUrl/docs"
@@ -74,12 +74,33 @@ function Ensure-OllamaModel {
     Write-Ok "Pulled Ollama model: $ModelName"
 }
 
+function Wait-HttpReady {
+    param(
+        [string]$Url,
+        [int]$TimeoutSeconds = 45
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-WebRequest -Uri $Url -Method Get -UseBasicParsing -TimeoutSec 2 | Out-Null
+            return $true
+        }
+        catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+    return $false
+}
+
 Set-Location -LiteralPath $ProjectRoot
 . $EnsureVenvScript
 
 Write-Host "Web3 Finance LLM Final UI Launcher" -ForegroundColor Green
 Write-Host "Backend root: $ProjectRoot"
 Write-Host "Final UI root: $FrontendRoot"
+Write-Host "This launcher starts FastAPI plus the React final presentation/testing UI."
+Write-Host "Streamlit is not required for the final UI; use start_demo.bat only for the functional testing console."
 
 Write-Step "Checking project folders"
 Assert-File -Path $FrontendRoot -Message "Final UI folder was not found: $FrontendRoot"
@@ -135,12 +156,22 @@ Write-Ok "Ollama service is reachable"
 Ensure-OllamaModel -ModelName $ChatModel
 Ensure-OllamaModel -ModelName $EmbedModel
 
-Write-Step "Indexing local RAG sources"
-& $VenvPython -m app.scripts.index_rag
-if ($LASTEXITCODE -ne 0) {
-    throw "RAG indexing failed. Check Ollama embedding model and local documents."
+Write-Step "Checking local RAG index"
+& $VenvPython -m app.scripts.check_rag_index --quiet
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok "Existing RAG index found. Skipping slow pre-index step."
 }
-Write-Ok "RAG indexing completed"
+else {
+    Write-Warn "No usable RAG index found. Building it once now; future launches will skip this step."
+    & $VenvPython -m app.scripts.index_rag
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "RAG indexing failed. Continuing startup so the FYP backend and final UI can still run."
+        Write-Warn "RAG answers may be limited until Ollama embeddings finish successfully. Retry later with: .\.venv\Scripts\python.exe -m app.scripts.index_rag"
+    }
+    else {
+        Write-Ok "RAG indexing completed"
+    }
+}
 
 Write-Step "Checking final UI Node dependencies"
 $NpmCommand = Get-Command npm -ErrorAction SilentlyContinue
@@ -170,18 +201,28 @@ finally {
     Pop-Location
 }
 
-Write-Step "Starting FastAPI backend in a new PowerShell window"
+Write-Step "Starting FastAPI backend for React in a new PowerShell window"
 $BackendCommand = "& { Set-Location -LiteralPath '$ProjectRoot'; . '$VenvActivate'; python -m uvicorn app.api.main:app --reload --host 127.0.0.1 --port 8000 }"
 Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $BackendCommand
 Write-Ok "FastAPI starting at $FastApiUrl"
 
 Write-Step "Starting final React UI in a new PowerShell window"
-$FrontendCommand = "& { Set-Location -LiteralPath '$FrontendRoot'; npm run dev -- --host 127.0.0.1 }"
+$FrontendCommand = "& { Set-Location -LiteralPath '$FrontendRoot'; `$env:VITE_API_BASE_URL = '$FastApiUrl'; npm run dev -- --host 127.0.0.1 }"
 Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $FrontendCommand
 Write-Ok "Final UI starting at $FinalUiUrl"
 
+Write-Step "Opening final UI in your default browser"
+if (Wait-HttpReady -Url $FinalUiUrl -TimeoutSeconds 45) {
+    Start-Process $FinalUiUrl
+    Write-Ok "Opened final UI: $FinalUiUrl"
+}
+else {
+    Write-Warn "Final UI did not respond within 45 seconds. Open it manually if needed: $FinalUiUrl"
+}
+
 Write-Host "`nFinal demo URLs" -ForegroundColor Green
 Write-Host "Final React UI: $FinalUiUrl"
+Write-Host "FastAPI backend: $FastApiUrl"
 Write-Host "FastAPI docs:    $FastApiDocsUrl"
 Write-Host "`nUse start_demo.bat only when you want the Streamlit functional test console." -ForegroundColor Yellow
-Write-Host "To stop FastAPI and Streamlit test windows, run .\scripts\stop_demo.ps1. Close the React terminal window to stop the final UI."
+Write-Host "To stop FastAPI, run .\scripts\stop_demo.ps1. Close the React terminal window to stop the final UI."

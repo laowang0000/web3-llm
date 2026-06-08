@@ -9,7 +9,7 @@ $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $RequirementsPath = Join-Path $ProjectRoot "requirements.txt"
 $EnsureVenvScript = Join-Path $ScriptDir "ensure_venv.ps1"
 
-$ChatModel = "qwen3.6:latest"
+$ChatModel = "qwen3.5:9b"
 $EmbedModel = "nomic-embed-text"
 $FastApiUrl = "http://127.0.0.1:8000"
 $FastApiDocsUrl = "$FastApiUrl/docs"
@@ -147,12 +147,22 @@ Write-Ok "Ollama service is reachable"
 Ensure-OllamaModel -ModelName $ChatModel
 Ensure-OllamaModel -ModelName $EmbedModel
 
-Write-Step "Indexing local RAG sources"
-& $VenvPython -m app.scripts.index_rag
-if ($LASTEXITCODE -ne 0) {
-    throw "RAG indexing failed. Check Ollama embedding model and local documents."
+Write-Step "Checking local RAG index"
+& $VenvPython -m app.scripts.check_rag_index --quiet
+if ($LASTEXITCODE -eq 0) {
+    Write-Ok "Existing RAG index found. Skipping slow pre-index step."
 }
-Write-Ok "RAG indexing completed"
+else {
+    Write-Warn "No usable RAG index found. Building it once now; future launches will skip this step."
+    & $VenvPython -m app.scripts.index_rag
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "RAG indexing failed. Continuing startup so the backend and functional testing console can still run."
+        Write-Warn "RAG answers may be limited until Ollama embeddings finish successfully. Retry later with: .\.venv\Scripts\python.exe -m app.scripts.index_rag"
+    }
+    else {
+        Write-Ok "RAG indexing completed"
+    }
+}
 
 Write-Step "Starting FastAPI backend in a new PowerShell window"
 $BackendCommand = "& { Set-Location -LiteralPath '$ProjectRoot'; . '$VenvActivate'; python -m uvicorn app.api.main:app --reload --host 127.0.0.1 --port 8000 }"
@@ -168,5 +178,5 @@ Write-Host "`nFunctional test URLs" -ForegroundColor Green
 Write-Host "FastAPI docs: $FastApiDocsUrl"
 Write-Host "Streamlit:    $StreamlitUrl"
 Write-Host "`nUse start_final_ui.bat for the polished React presentation UI." -ForegroundColor Yellow
-Write-Host "`nTo stop the demo, run:" -ForegroundColor Yellow
+Write-Host "`nTo stop the functional testing console, run:" -ForegroundColor Yellow
 Write-Host ".\scripts\stop_demo.ps1"

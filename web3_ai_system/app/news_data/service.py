@@ -25,7 +25,7 @@ class LiveNewsService:
     ) -> None:
         self.marketaux = marketaux_client or MarketauxClient()
         self.gnews = gnews_client or GNewsClient()
-        configured_max = int(os.getenv("NEWS_MAX_ARTICLES", "6"))
+        configured_max = int(os.getenv("NEWS_MAX_ARTICLES", "3"))
         self.max_articles = max(1, min(max_articles or configured_max, 12))
 
     def fetch_relevant_news(self, symbol: str, question: str | None = None) -> tuple[dict[str, Any], list[str]]:

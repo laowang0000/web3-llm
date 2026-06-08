@@ -156,7 +156,20 @@ def render_indicators(data: dict[str, Any]) -> None:
 def render_hybrid_answer(data: dict[str, Any], api_sources: list[str]) -> None:
     st.subheader("Ollama Analysis")
     st.write(data.get("answer") or "No answer returned.")
-    st.caption(f"Model: {data.get('model', 'N/A')}")
+
+    meta_cols = st.columns(4)
+    meta_cols[0].metric("Response mode", data.get("response_mode") or data.get("generation_mode") or "N/A")
+    meta_cols[1].metric("Model used", data.get("model") or "N/A")
+    meta_cols[2].metric("Prompt context", data.get("prompt_context_type") or "N/A")
+    meta_cols[3].metric("Fallback", "yes" if data.get("fallback_happened") else "no")
+
+    include_parts = []
+    include_parts.append(f"News: {'yes' if data.get('included_news_context') else 'no'}")
+    include_parts.append(f"RAG: {'yes' if data.get('included_rag_context') else 'no'}")
+    include_parts.append(f"DeFiLlama: {'yes' if data.get('included_defillama_context') else 'no'}")
+    st.caption(" | ".join(include_parts))
+    if data.get("selected_model") and data.get("selected_model") != data.get("model"):
+        st.caption(f"Attempted Ollama model: {data.get('selected_model')}")
 
     context_count = data.get("retrieved_context_count")
     if context_count is not None:
@@ -167,6 +180,16 @@ def render_hybrid_answer(data: dict[str, Any], api_sources: list[str]) -> None:
 
     with st.expander("Backend sources"):
         render_sources(api_sources)
+
+
+def render_symbol_guardrail(data: dict[str, Any]) -> None:
+    st.subheader("Symbol Guardrail")
+    st.warning(data.get("message") or "The selected symbol does not match the question context.")
+    st.write(f"Selected symbol: {data.get('selected_symbol') or 'N/A'}")
+    st.write(f"Question symbol: {data.get('question_symbol') or 'N/A'}")
+    if data.get("suggested_action"):
+        st.info(data["suggested_action"])
+    st.caption("No Ollama call, RAG retrieval, news lookup, or DeFiLlama context was used for this guarded request.")
 
 
 def render_live_news(news_data: dict[str, Any]) -> None:
@@ -201,14 +224,16 @@ def render_prediction(data: dict[str, Any]) -> None:
     trend = data.get("predicted_trend") or "N/A"
     probability_up = data.get("probability_up")
     probability_down = data.get("probability_down")
+    metrics = data.get("metrics") or {}
 
     trend_col, up_col, down_col, model_col = st.columns(4)
     trend_col.metric("Predicted trend", trend)
     up_col.metric("Probability UP", format_compact_number(probability_up, suffix=""))
     down_col.metric("Probability DOWN", format_compact_number(probability_down, suffix=""))
     model_col.metric("Model", data.get("model_name") or "N/A")
+    horizon_value = data.get("horizon_candles") or data.get("horizon_days") or "N/A"
+    st.caption(f"Horizon: {data.get('horizon_label') or f'future {horizon_value} candles'}")
 
-    metrics = data.get("metrics")
     if metrics:
         metric_cols = st.columns(4)
         metric_cols[0].metric("Accuracy", format_decimal(metrics.get("accuracy"), 4))
@@ -216,8 +241,33 @@ def render_prediction(data: dict[str, Any]) -> None:
         metric_cols[2].metric("Recall", format_decimal(metrics.get("recall"), 4))
         metric_cols[3].metric("F1", format_decimal(metrics.get("f1"), 4))
         st.caption(f"Metric type: {metrics.get('metric_type', 'demo_backtest')}")
+        baseline = metrics.get("baseline") or {}
+        st.write(
+            "Baseline comparison: "
+            f"model={format_decimal(metrics.get('model_accuracy'), 4)}, "
+            f"baseline={format_decimal(metrics.get('baseline_accuracy') or baseline.get('baseline_accuracy'), 4)}, "
+            f"improvement={format_decimal(metrics.get('model_vs_baseline_improvement'), 4)}"
+        )
+        confusion = metrics.get("confusion_matrix") or {}
+        if confusion.get("matrix"):
+            st.markdown("**Confusion matrix**")
+            st.dataframe(
+                pd.DataFrame(confusion["matrix"], index=confusion.get("labels", ["DOWN", "UP"]), columns=confusion.get("labels", ["DOWN", "UP"]))
+            )
+        if metrics.get("support"):
+            st.markdown("**Class support**")
+            st.json(metrics["support"])
+        st.write(f"85% target achieved: {metrics.get('target_85_achieved')}")
     else:
         st.info("Model metrics are not available for this run. The backend used a transparent fallback.")
+
+    evaluation = data.get("evaluation") or {}
+    if evaluation:
+        st.markdown("**Interpretation**")
+        st.write(evaluation.get("summary") or "No interpretation summary returned.")
+        st.caption(evaluation.get("reliability") or "")
+    if data.get("sample_warning"):
+        st.warning(data["sample_warning"])
 
     features = data.get("features") or []
     if features:
@@ -314,9 +364,12 @@ def main() -> None:
                 with st.spinner("Running market analysis, RAG retrieval, and Ollama generation..."):
                     payload = call_backend("POST", "/analyze", body)
                 data = payload.get("data") or {}
-                render_indicators(data)
-                render_hybrid_answer(data, payload.get("sources") or [])
-                render_live_news(data.get("live_news") or {})
+                if data.get("guardrail_triggered"):
+                    render_symbol_guardrail(data)
+                else:
+                    render_indicators(data)
+                    render_hybrid_answer(data, payload.get("sources") or [])
+                    render_live_news(data.get("live_news") or {})
             except BackendApiError as exc:
                 st.error(str(exc))
 
@@ -339,7 +392,7 @@ def main() -> None:
             body = {
                 "symbol": symbol,
                 "timeframe": timeframe,
-                "horizon_days": horizon_days,
+                "horizon_candles": horizon_days,
                 "limit": max(limit, 300 if timeframe == "1d" else 120),
             }
             try:

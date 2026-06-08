@@ -14,6 +14,7 @@ class QueryRequest:
     user_query: str
     asset: str = "BTC"
     horizon_days: int = 3
+    horizon_candles: int | None = None
 
 
 @dataclass
@@ -30,6 +31,7 @@ class PredictionResult:
     predicted_trend: str
     probability_up: float | None
     model_name: str
+    horizon_candles: int | None = None
     probability_down: float | None = None
     metrics: dict[str, Any] | None = None
     features: list[str] = field(default_factory=list)

@@ -1,4 +1,5 @@
 from collections import Counter
+import os
 
 from app.config import settings
 from app.insight_engine.embeddings import EmbeddingClientError, build_embeddings, get_embedding_settings
@@ -68,7 +69,10 @@ def main() -> int:
     )
 
     try:
-        indexed_count = vector_store.index_documents(chunks, force=True)
+        index_batch_size = max(1, int(os.getenv("RAG_INDEX_BATCH_SIZE", "32")))
+        print(f"Indexing chunks in Chroma batches of {index_batch_size}.")
+        print(f"Ollama embedding batch size: {embedding_settings.batch_size}")
+        indexed_count = vector_store.index_documents(chunks, force=True, batch_size=index_batch_size)
     except Exception as exc:
         print(f"ERROR: Failed to write Chroma index: {exc}")
         return 1

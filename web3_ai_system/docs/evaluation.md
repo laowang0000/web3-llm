@@ -19,3 +19,4 @@ This checklist supports the FYP demo evidence collection for the dual-engine MVP
 - Do not claim real wallet tracking, live on-chain transaction analysis, or persistent live social media/news ingestion.
 - If using Marketaux/GNews in the demo, describe it as on-demand live article augmentation for `/news` and `/analyze`, not as a stored news data warehouse.
 - Treat RAG answers as local-document-grounded explanations whose quality depends on indexed sources.
+- Do not claim private key handling, wallet login, transaction execution, swaps, full transaction history, or multi-chain analytics.

@@ -15,9 +15,10 @@ function Header({ activeEngine, onEngineChange, backendStatus, onCheckBackend })
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="grid grid-cols-2 gap-2 rounded-full border border-line-soft bg-surface-950 p-1.5">
+          <div className="grid grid-cols-3 gap-2 rounded-full border border-line-soft bg-surface-950 p-1.5">
             <EngineButton testId="engine-insight" active={activeEngine === "insight"} icon="brain" label="Insight" onClick={() => onEngineChange("insight")} />
             <EngineButton testId="engine-prediction" active={activeEngine === "prediction"} icon="gauge" label="Predict" onClick={() => onEngineChange("prediction")} />
+            <EngineButton testId="engine-models" active={activeEngine === "models"} icon="layers" label="Settings" onClick={() => onEngineChange("models")} />
           </div>
           <button data-testid="check-backend" onClick={onCheckBackend} className="ghost-button flex items-center justify-center gap-2 text-sm">
             <span className={`h-2 w-2 rounded-full ${backendStatus === "online" ? "bg-accent-green" : backendStatus === "checking" ? "bg-accent-gold" : "bg-accent-red"}`} />
