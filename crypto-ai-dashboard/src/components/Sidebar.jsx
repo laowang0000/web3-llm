@@ -29,14 +29,16 @@ function Sidebar({ activeEngine, onEngineChange }) {
               className={`group rounded-2xl px-4 py-4 text-left transition-all duration-700 ease-premium ${
                 active
                   ? "border border-accent-gold/28 bg-accent-gold/10 text-accent-champagne shadow-glow"
-                  : "border border-transparent text-ink-300 hover:bg-white/[0.04] hover:text-ink-50"
+                  : "border border-transparent text-ink-200 hover:bg-white/[0.04] hover:text-ink-50"
               }`}
             >
               <span className="flex items-center gap-3 text-sm font-semibold">
                 <Icon name={item.icon} className="h-5 w-5 transition-transform duration-700 ease-premium group-hover:translate-x-0.5" />
                 {item.label}
               </span>
-              <span className="mt-2 block pl-8 text-xs leading-5 text-ink-400">{item.description}</span>
+              <span className={`mt-2 block pl-8 text-xs font-medium leading-5 ${active ? "text-ink-200" : "text-ink-300"}`}>
+                {item.description}
+              </span>
             </button>
           );
         })}

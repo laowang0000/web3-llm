@@ -61,10 +61,12 @@ class InsightService:
         for index, doc in enumerate(documents, start=1):
             source_name = doc.metadata.get("source_name", f"document_{index}")
             source_type = doc.metadata.get("source_type", "unknown")
-            page = doc.metadata.get("page")
+            file_extension = doc.metadata.get("file_extension", "")
+            page = self._display_page(doc.metadata.get("page"))
             page_label = f"; page={page}" if page is not None else ""
             blocks.append(
-                f"[Context {index}] source_name={source_name}; source_type={source_type}{page_label}\n"
+                f"[Context {index}] source_name={source_name}; source_type={source_type}; "
+                f"file_extension={file_extension}{page_label}\n"
                 f"{doc.page_content}"
             )
         return "\n\n".join(blocks)
@@ -74,7 +76,7 @@ class InsightService:
         for doc in documents:
             source_type = doc.metadata.get("source_type", "unknown")
             source_name = doc.metadata.get("source_name", "unknown")
-            page = doc.metadata.get("page")
+            page = self._display_page(doc.metadata.get("page"))
             label = f"{source_type}::{source_name}"
             if page is not None:
                 label = f"{label}#page={page}"
@@ -89,7 +91,8 @@ class InsightService:
                     "source_name": doc.metadata.get("source_name", "unknown"),
                     "source_type": doc.metadata.get("source_type", "unknown"),
                     "source_path": doc.metadata.get("source_path", ""),
-                    "page": doc.metadata.get("page"),
+                    "file_extension": doc.metadata.get("file_extension", ""),
+                    "page": self._display_page(doc.metadata.get("page")),
                     "preview": doc.page_content[:240].strip(),
                 }
             )
@@ -98,3 +101,11 @@ class InsightService:
     def _collection_name(self, provider: str, model: str) -> str:
         safe_model = "".join(character if character.isalnum() else "_" for character in model.lower())
         return f"crypto_insight_{provider}_{safe_model}"[:63]
+
+    def _display_page(self, page: object) -> int | None:
+        if page is None:
+            return None
+        try:
+            return int(page) + 1
+        except (TypeError, ValueError):
+            return None

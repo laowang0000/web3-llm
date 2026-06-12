@@ -39,6 +39,8 @@ logs/
 *.log
 tmp/
 temp/
+docx_render_check/
+~$*.docx
 
 # Generated local data and databases
 storage/
@@ -88,6 +90,7 @@ ollama/
 .codex/
 .agents/
 skills-lock.json
+project_memory_migration_report.md
 
 # Unrelated local workspaces in this folder
 ragflow/
@@ -99,3 +102,9 @@ crypto-ai-dashboard/dist/
 crypto-ai-dashboard/build/
 crypto-ai-dashboard/*.log
 crypto-ai-dashboard/coverage/
+crypto-ai-dashboard/.playwright-cli/
+
+# Local Word/report working copies
+1211108357_ONG QI REN_FYP report*.docx
+1211108357_ONG%20QI%20REN_FYP%20report*.docx
+FYPDocumentationTemplate2024.docx

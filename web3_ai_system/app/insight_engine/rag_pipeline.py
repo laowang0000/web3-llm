@@ -17,9 +17,12 @@ class CryptoInsightRAGPipeline:
         for index, doc in enumerate(documents, start=1):
             source_name = doc.metadata.get("source_name", f"document_{index}")
             source_type = doc.metadata.get("source_type", "unknown")
+            file_extension = doc.metadata.get("file_extension", "")
+            page = self._display_page(doc.metadata.get("page"))
+            page_label = f"; page={page}" if page is not None else ""
             blocks.append(
                 f"[Document {index}] "
-                f"source_name={source_name}; source_type={source_type}\n"
+                f"source_name={source_name}; source_type={source_type}; file_extension={file_extension}{page_label}\n"
                 f"{doc.page_content}"
             )
         return "\n\n".join(blocks)
@@ -31,6 +34,8 @@ class CryptoInsightRAGPipeline:
                 {
                     "source_name": doc.metadata.get("source_name", "unknown"),
                     "source_type": doc.metadata.get("source_type", "unknown"),
+                    "file_extension": doc.metadata.get("file_extension", ""),
+                    "page": self._display_page(doc.metadata.get("page")),
                     "preview": doc.page_content[:240].strip(),
                 }
             )
@@ -47,13 +52,24 @@ class CryptoInsightRAGPipeline:
         )
         response = self.llm.invoke(prompt)
 
-        source_labels = [
-            f"{doc.metadata.get('source_type', 'unknown')}::{doc.metadata.get('source_name', 'unknown')}"
-            for doc in documents
-        ]
+        source_labels = []
+        for doc in documents:
+            label = f"{doc.metadata.get('source_type', 'unknown')}::{doc.metadata.get('source_name', 'unknown')}"
+            page = self._display_page(doc.metadata.get("page"))
+            if page is not None:
+                label = f"{label}#page={page}"
+            source_labels.append(label)
 
         return InsightResult(
             answer=response.content,
             sources=source_labels,
             retrieved_chunks=self._build_chunk_trace(documents),
         )
+
+    def _display_page(self, page: object) -> int | None:
+        if page is None:
+            return None
+        try:
+            return int(page) + 1
+        except (TypeError, ValueError):
+            return None

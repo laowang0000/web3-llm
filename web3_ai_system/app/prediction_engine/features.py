@@ -48,6 +48,7 @@ def build_indicator_frame(frame: pd.DataFrame) -> pd.DataFrame:
     indicators["ema_20"] = indicators["close"].ewm(span=20, adjust=False).mean()
     indicators["ema_26"] = indicators["close"].ewm(span=26, adjust=False).mean()
     indicators["ema_50"] = indicators["close"].ewm(span=50, adjust=False).mean()
+    indicators["ema_200"] = indicators["close"].ewm(span=200, adjust=False).mean()
     indicators["macd"] = indicators["ema_12"] - indicators["ema_26"]
     indicators["macd_signal"] = indicators["macd"].ewm(span=9, adjust=False).mean()
     indicators["macd_histogram"] = indicators["macd"] - indicators["macd_signal"]
@@ -63,6 +64,8 @@ def build_indicator_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
     indicators["return_1"] = indicators["close"].pct_change()
     indicators["volatility_20"] = indicators["return_1"].rolling(window=20, min_periods=20).std()
+    indicators["support_20"] = indicators["low"].rolling(window=20, min_periods=20).min()
+    indicators["resistance_20"] = indicators["high"].rolling(window=20, min_periods=20).max()
     return indicators.dropna().reset_index(drop=True)
 
 
@@ -78,6 +81,7 @@ def get_latest_indicator_snapshot(indicator_frame: pd.DataFrame) -> dict:
         "ema_20": round(float(latest["ema_20"]), 8),
         "ema_26": round(float(latest["ema_26"]), 8),
         "ema_50": round(float(latest["ema_50"]), 8),
+        "ema_200": round(float(latest["ema_200"]), 8),
         "macd": round(float(latest["macd"]), 8),
         "macd_signal": round(float(latest["macd_signal"]), 8),
         "macd_histogram": round(float(latest["macd_histogram"]), 8),
@@ -86,6 +90,8 @@ def get_latest_indicator_snapshot(indicator_frame: pd.DataFrame) -> dict:
         "bollinger_lower": round(float(latest["bollinger_lower"]), 8),
         "bollinger_bandwidth": round(float(latest["bollinger_bandwidth"]), 6),
         "volatility_20": round(float(latest["volatility_20"]), 6),
+        "support_20": round(float(latest["support_20"]), 8),
+        "resistance_20": round(float(latest["resistance_20"]), 8),
     }
 
 
@@ -133,6 +139,8 @@ def build_feature_frame(
         features["ema_26"] = features["close"].ewm(span=26, adjust=False).mean()
     if "ema_50" not in features.columns:
         features["ema_50"] = features["close"].ewm(span=50, adjust=False).mean()
+    if "ema_200" not in features.columns:
+        features["ema_200"] = features["close"].ewm(span=200, adjust=False).mean()
     features["ema_short"] = features["ema_12"]
     features["ema_long"] = features["ema_50"]
     features["ema_distance"] = (features["ema_short"] - features["ema_long"]) / features["close"]

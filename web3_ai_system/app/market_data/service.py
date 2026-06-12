@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import math
 import os
 from pathlib import Path
@@ -127,7 +128,7 @@ class MarketDataService:
 
             if provider == "coingecko":
                 try:
-                    days = self._coingecko_chart_days(timeframe=timeframe, limit=limit)
+                    days = min(self._coingecko_chart_days(timeframe=timeframe, limit=limit), 365)
                     frame = self.coingecko.fetch_market_chart(base_symbol(normalized_symbol), days=days)
                     if len(frame) < 50:
                         raise MarketDataServiceError(
@@ -142,7 +143,7 @@ class MarketDataService:
 
             if provider == "coinpaprika":
                 try:
-                    days = max(limit, 90)
+                    days = min(max(limit, 90), 364)
                     frame = self.coinpaprika.fetch_market_chart(base_symbol(normalized_symbol), days=days)
                     if len(frame) < 50:
                         raise MarketDataServiceError(
@@ -185,6 +186,8 @@ class MarketDataService:
         data = {
             "symbol": normalized_symbol,
             "provider": market_snapshot["provider"],
+            "source": market_snapshot["source"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "timeframe": timeframe,
             "price": market_snapshot["price_usd"],
             "price_usd": market_snapshot["price_usd"],

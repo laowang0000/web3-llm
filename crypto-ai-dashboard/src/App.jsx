@@ -26,16 +26,20 @@ const MODEL_DESCRIPTIONS = {
 
 function App() {
   const [activeEngine, setActiveEngine] = useState("insight");
-  const [symbol, setSymbol] = useState("BTCUSDT");
-  const [timeframe, setTimeframe] = useState("1h");
+  const [insightSymbol, setInsightSymbol] = useState("BTCUSDT");
+  const [predictionSymbol, setPredictionSymbol] = useState("SOLUSDT");
+  const [insightTimeframe, setInsightTimeframe] = useState("1h");
+  const [predictionTimeframe, setPredictionTimeframe] = useState("1d");
   const [horizonDays, setHorizonDays] = useState(3);
-  const [predictionLimit, setPredictionLimit] = useState(500);
+  const [predictionLimit, setPredictionLimit] = useState(300);
   const [question, setQuestion] = useState(sampleQueries[0].question);
   const [insightResult, setInsightResult] = useState(null);
   const [predictionResult, setPredictionResult] = useState(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [predictionLoading, setPredictionLoading] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [insightNotice, setInsightNotice] = useState("");
+  const [predictionNotice, setPredictionNotice] = useState("");
+  const [systemNotice, setSystemNotice] = useState("");
   const [backendStatus, setBackendStatus] = useState("idle");
   const [runtimeStatus, setRuntimeStatus] = useState({
     status: "idle",
@@ -153,7 +157,7 @@ function App() {
 
   async function checkBackend() {
     setBackendStatus("checking");
-    setNotice("");
+    setSystemNotice("");
     try {
       await requestBackend("/health");
       setBackendStatus("online");
@@ -166,7 +170,7 @@ function App() {
         components: [],
         error: formatBackendError(error),
       });
-      setNotice(formatBackendError(error));
+      setSystemNotice(formatBackendError(error));
     }
   }
 
@@ -196,14 +200,14 @@ function App() {
   async function runInsight() {
     setActiveEngine("insight");
     setInsightLoading(true);
-    setNotice("");
+    setInsightNotice("");
     setInsightResult(null);
     try {
       const payload = await requestBackend("/analyze", {
         method: "POST",
         body: JSON.stringify({
-          symbol,
-          timeframe,
+          symbol: insightSymbol,
+          timeframe: insightTimeframe,
           limit: 120,
           question,
           selected_model: providerSettings.providerType === "local_ollama" ? selectedChatModel || undefined : undefined,
@@ -213,7 +217,7 @@ function App() {
       setInsightResult({ ...payload.data, sources: payload.sources || [] });
       setBackendStatus("online");
     } catch (error) {
-      setNotice(`${formatBackendError(error)} No frontend fallback result was generated.`);
+      setInsightNotice(`${formatBackendError(error)} No frontend fallback result was generated.`);
       setBackendStatus(error.name === "TypeError" || error.name === "AbortError" ? "offline" : "online");
     } finally {
       setInsightLoading(false);
@@ -223,17 +227,22 @@ function App() {
   async function runPrediction() {
     setActiveEngine("prediction");
     setPredictionLoading(true);
-    setNotice("");
+    setPredictionNotice("");
     setPredictionResult(null);
     try {
       const payload = await requestBackend("/predict", {
         method: "POST",
-        body: JSON.stringify({ symbol, timeframe, horizon_candles: Number(horizonDays), limit: Number(predictionLimit) }),
+        body: JSON.stringify({
+          symbol: predictionSymbol,
+          timeframe: predictionTimeframe,
+          horizon_candles: Number(horizonDays),
+          limit: Number(predictionLimit),
+        }),
       });
       setPredictionResult({ ...payload.data, sources: payload.sources || [] });
       setBackendStatus("online");
     } catch (error) {
-      setNotice(`${formatBackendError(error)} No frontend fallback result was generated.`);
+      setPredictionNotice(`${formatBackendError(error)} No frontend fallback result was generated.`);
       setBackendStatus(error.name === "TypeError" || error.name === "AbortError" ? "offline" : "online");
     } finally {
       setPredictionLoading(false);
@@ -241,6 +250,11 @@ function App() {
   }
 
   const activeTitle = activeEngine === "insight" ? "Insight Engine" : activeEngine === "prediction" ? "Prediction Engine" : "Settings";
+  const activeNotice = activeEngine === "insight" ? insightNotice : activeEngine === "prediction" ? predictionNotice : systemNotice;
+  const activeSymbol = activeEngine === "prediction" ? predictionSymbol : insightSymbol;
+  const activeSetSymbol = activeEngine === "prediction" ? setPredictionSymbol : setInsightSymbol;
+  const activeTimeframe = activeEngine === "prediction" ? predictionTimeframe : insightTimeframe;
+  const activeSetTimeframe = activeEngine === "prediction" ? setPredictionTimeframe : setInsightTimeframe;
 
   return (
     <div className="min-h-screen bg-surface-950 text-ink-50">
@@ -249,9 +263,9 @@ function App() {
         <Sidebar activeEngine={activeEngine} onEngineChange={setActiveEngine} />
 
         <main className="min-w-0 flex-1">
-          <Header activeEngine={activeEngine} onEngineChange={setActiveEngine} backendStatus={backendStatus} onCheckBackend={checkBackend} />
+          <Header backendStatus={backendStatus} onCheckBackend={checkBackend} />
 
-          <section className="mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+          <section className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
             <MobileEngineSwitch activeEngine={activeEngine} onEngineChange={setActiveEngine} />
 
             {activeEngine === "models" ? (
@@ -270,14 +284,14 @@ function App() {
                 onRefreshRuntimeStatus={loadRuntimeStatus}
               />
             ) : (
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <WorkspaceCard
                   activeEngine={activeEngine}
                   activeTitle={activeTitle}
-                  symbol={symbol}
-                  setSymbol={setSymbol}
-                  timeframe={timeframe}
-                  setTimeframe={setTimeframe}
+                  symbol={activeSymbol}
+                  setSymbol={activeSetSymbol}
+                  timeframe={activeTimeframe}
+                  setTimeframe={activeSetTimeframe}
                   horizonDays={horizonDays}
                   setHorizonDays={setHorizonDays}
                   predictionLimit={predictionLimit}
@@ -295,22 +309,18 @@ function App() {
                 <QuickPanel
                   activeEngine={activeEngine}
                   setActiveEngine={setActiveEngine}
-                  setSymbol={setSymbol}
+                  setInsightSymbol={setInsightSymbol}
+                  setPredictionSymbol={setPredictionSymbol}
                   setQuestion={setQuestion}
-                  onRunInsight={runInsight}
-                  onRunPrediction={runPrediction}
-                  insightLoading={insightLoading}
-                  predictionLoading={predictionLoading}
-                  question={question}
                   selectedChatModel={selectedChatModel}
                   providerSettings={providerSettings}
                 />
               </div>
             )}
 
-            {notice && (
+            {activeNotice && (
               <div className="rounded-2xl border border-accent-gold/22 bg-accent-gold/8 px-4 py-3 text-sm leading-6 text-accent-champagne">
-                {notice}
+                {activeNotice}
               </div>
             )}
 
@@ -359,7 +369,7 @@ function WorkspaceCard(props) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent-gold/85">{props.activeTitle}</p>
             <h2 className="mt-2 text-2xl font-semibold text-ink-50">
-              {isInsight ? "Ask a source-grounded market question" : "Run backend trend prediction"}
+              {isInsight ? "Ask a market risk question" : "Run backend trend prediction"}
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-300">
               {isInsight
@@ -372,15 +382,15 @@ function WorkspaceCard(props) {
           </span>
         </div>
 
-        <div className={`mt-6 grid gap-4 ${isInsight ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
+        <div className={`mt-5 grid gap-4 ${isInsight ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
           <SelectGroup label="Symbol" value={props.symbol} options={symbols} onChange={props.setSymbol} />
           <SelectGroup label="Timeframe" value={props.timeframe} options={timeframes} onChange={props.setTimeframe} />
           {isInsight ? (
             <ReadOnlyField label="Candle limit" value="120" />
           ) : (
             <>
-              <SelectGroup label="Horizon: future N candles" value={String(props.horizonDays)} options={["1", "3", "5", "7"]} onChange={(value) => props.setHorizonDays(Number(value))} />
-              <SelectGroup label="Candle limit" value={String(props.predictionLimit)} options={["300", "500", "1000"]} onChange={(value) => props.setPredictionLimit(Number(value))} />
+              <SelectGroup label="Horizon" value={String(props.horizonDays)} options={["1", "3", "5", "7"]} onChange={(value) => props.setHorizonDays(Number(value))} />
+              <SelectGroup label="Candle limit" value={String(props.predictionLimit)} options={["240", "300", "365"]} onChange={(value) => props.setPredictionLimit(Number(value))} />
             </>
           )}
         </div>
@@ -397,7 +407,7 @@ function WorkspaceCard(props) {
           </label>
         )}
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
             data-testid={isInsight ? "run-insight" : "run-prediction"}
             onClick={isInsight ? props.onRunInsight : props.onRunPrediction}
@@ -413,7 +423,7 @@ function WorkspaceCard(props) {
             onClick={props.onOpenModelSettings}
             className="ghost-button h-12 text-sm"
           >
-            Settings
+            Model settings
           </button>
           <button
             onClick={() => {
@@ -441,54 +451,68 @@ function WorkspaceCard(props) {
 }
 
 function QuickPanel({
-  activeEngine,
   setActiveEngine,
-  setSymbol,
+  setInsightSymbol,
+  setPredictionSymbol,
   setQuestion,
-  onRunInsight,
-  onRunPrediction,
-  insightLoading,
-  predictionLoading,
-  question,
   selectedChatModel,
   providerSettings,
 }) {
+  const [selectedExample, setSelectedExample] = useState("");
+  const activeModelLabel = describeActiveProviderModel(providerSettings, selectedChatModel);
+  const selectedItem = sampleQueries.find((item) => item.label === selectedExample);
+
+  function applyExample(label) {
+    const item = sampleQueries.find((sample) => sample.label === label);
+    setSelectedExample(label);
+    if (!item) return;
+    setActiveEngine(item.engine);
+    if (item.engine === "prediction") {
+      setPredictionSymbol(item.symbol);
+    } else {
+      setInsightSymbol(item.symbol);
+      setQuestion(item.question);
+    }
+  }
+
   return (
     <aside className="space-y-4">
       <div className="gold-shell rounded-[1.8rem]">
         <div className="gold-core rounded-[1.45rem] p-5">
           <h3 className="text-lg font-semibold text-ink-50">Quick examples</h3>
-          <p className="mt-1 text-sm text-ink-300">Fill the workspace, then run the backend call.</p>
-          <div className="mt-4 space-y-2">
-            {sampleQueries.map((item) => (
-              <button
-                data-testid={`example-${item.engine}-${item.symbol}`}
-                key={item.label}
-                onClick={() => {
-                  setActiveEngine(item.engine);
-                  setSymbol(item.symbol);
-                  setQuestion(item.question);
-                }}
-                className="w-full rounded-2xl border border-line-soft bg-white/[0.025] p-4 text-left transition-all duration-700 ease-premium hover:border-line-strong hover:bg-white/[0.045]"
-              >
-                <span className="block text-sm font-semibold text-ink-50">{item.label}</span>
-                <span className="mt-1 block text-xs leading-5 text-ink-400">{item.question}</span>
-              </button>
-            ))}
+          <p className="mt-1 text-sm text-ink-300">Pick one preset to fill the workspace for demo.</p>
+          <label className="mt-4 block">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">Demo preset</span>
+            <select
+              data-testid="quick-example-select"
+              value={selectedExample}
+              onChange={(event) => applyExample(event.target.value)}
+              className="mt-2 min-h-[52px] w-full rounded-[1.25rem] border border-line-soft bg-surface-950 px-4 text-sm font-semibold text-ink-50 outline-none subtle-ring transition-all duration-700 ease-premium focus:border-accent-gold/35"
+            >
+              <option value="">Select BTC, ETH, or SOL demo</option>
+              {sampleQueries.map((item) => (
+                <option key={item.label} value={item.label}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="mt-4 rounded-2xl border border-line-cool bg-white/[0.045] p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-gold/80">Selected flow</p>
+            <p className="mt-2 text-sm font-semibold text-ink-50">{selectedItem ? selectedItem.label : "No preset selected"}</p>
+            <p className="mt-2 text-sm leading-6 text-ink-200">
+              {selectedItem ? selectedItem.question : "Use the dropdown to load one of the three demo-ready examples."}
+            </p>
           </div>
         </div>
       </div>
 
       <div className="rounded-[1.45rem] border border-line-soft bg-surface-900/90 p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-gold/85">Unified backend contract</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-gold/85">Runtime context</p>
         <div className="mt-4 grid gap-3">
-          <EngineMiniCard active={activeEngine === "insight"} title="Insight Engine" body="POST /analyze" icon="brain" onClick={() => setActiveEngine("insight")} />
-          <EngineMiniCard active={activeEngine === "prediction"} title="Prediction Engine" body="POST /predict" icon="gauge" onClick={() => setActiveEngine("prediction")} />
-          <EngineMiniCard active={activeEngine === "models"} title="Settings" body={describeActiveProviderModel(providerSettings, selectedChatModel)} icon="layers" onClick={() => setActiveEngine("models")} />
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button data-testid="quick-run-insight" disabled={insightLoading || !question.trim()} onClick={onRunInsight} className="ghost-button text-xs disabled:cursor-not-allowed disabled:opacity-50">Run insight</button>
-          <button data-testid="quick-run-predict" disabled={predictionLoading} onClick={onRunPrediction} className="ghost-button text-xs disabled:cursor-not-allowed disabled:opacity-50">Run predict</button>
+          <MetricRow label="Active model" value={activeModelLabel} />
+          <MetricRow label="Insight route" value="POST /analyze" />
+          <MetricRow label="Prediction route" value="POST /predict" />
         </div>
       </div>
     </aside>
@@ -835,6 +859,7 @@ function InsightResults({ result, loading }) {
           <p className="mt-5 whitespace-pre-line rounded-[1.25rem] border border-line-soft bg-surface-950/80 p-5 text-sm leading-8 text-ink-200">
             {result.answer || "The backend response did not include an answer field."}
           </p>
+          <SourceTrace result={result} embedded />
           <div className="mt-5">
             <h3 className="text-sm font-semibold text-ink-50">Risk flags</h3>
             {riskFlags.length > 0 ? (
@@ -856,7 +881,6 @@ function InsightResults({ result, loading }) {
         <MarketSummary result={result} />
         <AnalysisRoutePanel result={result} />
         <IndicatorGrid indicators={indicators} />
-        <SourceTrace result={result} />
       </div>
     </section>
   );
@@ -1009,15 +1033,17 @@ function PredictionResults({ result, loading }) {
 }
 
 function SelectGroup({ label, value, options, onChange }) {
+  const optionGridClass = options.length === 4 ? "grid-cols-4" : "grid-cols-3";
+
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">{label}</p>
-      <div className="mt-2 grid grid-cols-3 gap-2 rounded-[1.25rem] border border-line-soft bg-surface-950 p-1.5">
+      <div className={`mt-2 grid ${optionGridClass} gap-1.5 rounded-[1.25rem] border border-line-soft bg-surface-950 p-1.5`}>
         {options.map((option) => (
           <button
             key={option}
             onClick={() => onChange(option)}
-            className={`min-h-10 rounded-2xl px-3 text-xs font-semibold transition-all duration-700 ease-premium ${
+            className={`min-h-10 min-w-0 rounded-2xl px-2 text-[11px] font-semibold transition-all duration-700 ease-premium ${
               String(value) === String(option) ? "bg-accent-gold text-surface-950" : "text-ink-300 hover:bg-white/[0.04] hover:text-ink-50"
             }`}
           >
@@ -1037,23 +1063,6 @@ function ReadOnlyField({ label, value }) {
         {value}
       </div>
     </div>
-  );
-}
-
-function EngineMiniCard({ active, title, body, icon, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl border p-4 text-left transition-all duration-700 ease-premium ${
-        active ? "border-accent-gold/30 bg-accent-gold/10" : "border-line-soft bg-white/[0.025] hover:border-line-strong"
-      }`}
-    >
-      <span className="flex items-center gap-3 text-sm font-semibold text-ink-50">
-        <Icon name={icon} className="h-5 w-5 text-accent-gold" />
-        {title}
-      </span>
-      <span className="mt-2 block text-xs leading-5 text-ink-400">{body}</span>
-    </button>
   );
 }
 
@@ -1147,25 +1156,40 @@ function IndicatorGrid({ indicators }) {
   );
 }
 
-function SourceTrace({ result }) {
+function SourceTrace({ result, embedded = false }) {
   const sources = normalizeSources(result);
+  const content = (
+    <>
+      <h3 className={embedded ? "text-sm font-semibold text-ink-50" : "text-lg font-semibold text-ink-50"}>Retrieved sources</h3>
+      {sources.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {sources.map((source) => (
+            <div key={`${source.title}-${source.type}`} className="rounded-2xl border border-line-cool bg-white/[0.04] p-4">
+              <p className="text-sm font-semibold text-ink-50">{source.title}</p>
+              <p className="mt-1 text-xs font-medium text-ink-300">
+                {source.type}{source.extension ? ` ${source.extension}` : ""}{source.page ? ` - page ${source.page}` : ""}
+              </p>
+              {source.preview && (
+                <p className="mt-3 rounded-xl border border-accent-gold/18 bg-white/[0.075] px-4 py-3 text-sm font-medium leading-7 text-ink-50">
+                  {source.preview}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-ink-400">No source trace returned by backend.</p>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="mt-5 rounded-[1.25rem] border border-line-soft bg-surface-950/80 p-5">{content}</div>;
+  }
+
   return (
     <aside className="gold-shell rounded-[1.8rem]">
-      <div className="gold-core rounded-[1.45rem] p-5">
-        <h3 className="text-lg font-semibold text-ink-50">Retrieved sources</h3>
-        {sources.length > 0 ? (
-          <div className="mt-4 space-y-3">
-            {sources.map((source) => (
-              <div key={`${source.title}-${source.type}`} className="rounded-2xl border border-line-cool bg-white/[0.025] p-4">
-                <p className="text-sm font-semibold text-ink-50">{source.title}</p>
-                <p className="mt-1 text-xs text-ink-400">{source.type}{source.page ? ` - page ${source.page}` : ""}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-ink-400">No source trace returned by backend.</p>
-        )}
-      </div>
+      <div className="gold-core rounded-[1.45rem] p-5">{content}</div>
     </aside>
   );
 }
@@ -1311,14 +1335,14 @@ function ConfusionMatrixPanel({ confusion, support }) {
 function RecommendedPredictionSettings({ settings }) {
   const resolved = isPlainObject(settings)
     ? settings
-    : { symbol: "BTCUSDT", timeframes: ["4h", "1d"], limit: "500 candles for the current demo; 1000+ for stronger validation", horizon_candles: "3 to 5 future candles" };
+    : { symbol: "BTCUSDT", timeframes: ["4h", "1d"], limit: "300 daily candles for the public-provider demo", horizon_candles: "3 to 5 future candles" };
   return (
     <div className="rounded-[1.45rem] border border-line-soft bg-surface-900/90 p-5">
       <h3 className="text-lg font-semibold text-ink-50">Stable prediction settings</h3>
       <div className="mt-4 grid gap-3">
         <MetricRow label="Symbol" value={resolved.symbol || "BTCUSDT"} />
         <MetricRow label="Timeframe" value={Array.isArray(resolved.timeframes) ? resolved.timeframes.join(" or ") : resolved.timeframes || "4h or 1d"} />
-        <MetricRow label="Limit" value={resolved.limit || "500 candles for the current demo; 1000+ for stronger validation"} />
+        <MetricRow label="Limit" value={resolved.limit || "300 daily candles for the public-provider demo"} />
         <MetricRow label="Horizon" value={resolved.horizon_candles || "3 to 5 future candles"} />
       </div>
     </div>
@@ -1341,8 +1365,8 @@ function BackendNotes({ notes }) {
 
 function MetricRow({ label, value }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-line-cool bg-white/[0.025] px-4 py-3">
-      <span className="text-xs uppercase tracking-[0.16em] text-ink-500">{label}</span>
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-line-cool bg-white/[0.045] px-4 py-3">
+      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-300">{label}</span>
       <span className="number-font text-sm font-semibold text-ink-50">{value}</span>
     </div>
   );
@@ -1350,19 +1374,21 @@ function MetricRow({ label, value }) {
 
 function EmptyPanel({ title, body, icon }) {
   return (
-    <section className="rounded-[1.8rem] border border-line-soft bg-surface-900/88 p-8 text-center">
-      <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-accent-gold/22 bg-accent-gold/10 text-accent-gold">
+    <section className="flex items-center gap-4 rounded-[1.45rem] border border-line-soft bg-surface-900/88 px-5 py-4">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-accent-gold/22 bg-accent-gold/10 text-accent-gold">
         <Icon name={icon} className="h-5 w-5" />
       </div>
-      <h2 className="mt-4 text-xl font-semibold text-ink-50">{title}</h2>
-      <p className="mt-2 text-sm text-ink-300">{body}</p>
+      <div>
+        <h2 className="text-base font-semibold text-ink-50">{title}</h2>
+        <p className="mt-1 text-sm text-ink-300">{body}</p>
+      </div>
     </section>
   );
 }
 
 function LoadingPanel({ title }) {
   return (
-    <section className="rounded-[1.8rem] border border-line-soft bg-surface-900/88 p-8">
+    <section className="rounded-[1.45rem] border border-line-soft bg-surface-900/88 px-5 py-4">
       <div className="flex items-center gap-4">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent-gold/20 border-t-accent-gold" />
         <div>
@@ -1387,9 +1413,10 @@ function normalizeIndicators(result) {
   const indicators = result.indicators;
   return [
     { name: "RSI", value: formatValue(indicators.rsi, 2), note: "Relative strength index", tone: "neutral" },
-    { name: "EMA 20 / 50", value: `${formatValue(indicators.ema_20, 2)} / ${formatValue(indicators.ema_50, 2)}`, note: "Moving-average structure", tone: "positive" },
+    { name: "EMA 20 / 50 / 200", value: `${formatValue(indicators.ema_20, 2)} / ${formatValue(indicators.ema_50, 2)} / ${formatValue(indicators.ema_200, 2)}`, note: "Moving-average structure", tone: "positive" },
     { name: "MACD Hist.", value: formatValue(indicators.macd_histogram, 4), note: "Momentum confirmation", tone: Number(indicators.macd_histogram) >= 0 ? "positive" : "neutral" },
     { name: "BB Width", value: formatValue(indicators.bollinger_bandwidth, 4), note: "Volatility range", tone: "neutral" },
+    { name: "Support / Resistance", value: `${formatValue(indicators.support_20, 2)} / ${formatValue(indicators.resistance_20, 2)}`, note: "Recent 20-candle range", tone: "neutral" },
   ];
 }
 
@@ -1401,7 +1428,9 @@ function normalizeSources(result) {
       return {
         title: source.source_name || source.source_path || source.title || `Source ${index + 1}`,
         type: source.source_type || source.type || "Retrieved source",
+        extension: source.file_extension || source.extension || "",
         page: source.page,
+        preview: source.preview || "",
       };
     }
     return { title: String(source), type: `Source ${index + 1}` };

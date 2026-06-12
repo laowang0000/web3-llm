@@ -3,6 +3,12 @@ import re
 from typing import Any
 
 from app.defi_data.defillama_client import DefiLlamaClient, DefiLlamaClientError, defillama_context_enabled
+from app.insight_engine.pdf_evidence import (
+    chunk_metadata as pdf_chunk_metadata,
+    format_documents_context as format_pdf_context,
+    retrieve_explicit_pdf_documents,
+    source_labels as pdf_source_labels,
+)
 from app.insight_engine.service import InsightService
 from app.llm.ollama_client import OllamaChatClient, OllamaClientError
 from app.market_data.service import MarketDataService
@@ -145,6 +151,7 @@ class HybridAnalysisService:
         included_rag_context = False
         included_news_context = False
         included_defillama_context = False
+        rag_warning: str | None = None
 
         if compact_technical:
             prompt_context = self._build_technical_prompt_context(market_data, limit)
@@ -155,10 +162,18 @@ class HybridAnalysisService:
             rag_context = ""
             if context_strategy["include_rag"]:
                 retrieval_query = self._build_retrieval_query(market_data, question)
-                documents = self.insight_service.retrieve(retrieval_query)
-                rag_context = self._clip_context(self.insight_service.format_context(documents), 900)
-                rag_sources = self.insight_service.source_labels(documents)
-                retrieved_metadata = self.insight_service.chunk_metadata(documents)
+                explicit_pdf_documents = retrieve_explicit_pdf_documents(retrieval_query)
+                vector_documents = []
+                try:
+                    vector_documents = self.insight_service.retrieve(retrieval_query)
+                except Exception as exc:
+                    rag_warning = f"Vector RAG retrieval unavailable: {exc}"
+                    if not explicit_pdf_documents:
+                        raise
+                documents = self._merge_documents(explicit_pdf_documents, vector_documents)
+                rag_context = self._clip_context(self._format_retrieved_context(documents), 1800)
+                rag_sources = self._source_labels(documents)
+                retrieved_metadata = self._chunk_metadata(documents)
                 included_rag_context = bool(rag_context)
 
             news_context = ""
@@ -247,6 +262,8 @@ class HybridAnalysisService:
         }
         if defillama_warning:
             data["source_warnings"] = [*data["source_warnings"], defillama_warning]
+        if rag_warning:
+            data["source_warnings"] = [*data["source_warnings"], rag_warning]
         sources = list(
             dict.fromkeys(
                 market_sources
@@ -343,6 +360,56 @@ class HybridAnalysisService:
             f"Risk flags: {'; '.join(market_data['risk_flags'])}"
         )
 
+    def _merge_documents(self, preferred_documents: list[Any], vector_documents: list[Any]) -> list[Any]:
+        merged: list[Any] = []
+        seen: set[tuple[str, Any]] = set()
+        for doc in [*preferred_documents, *vector_documents]:
+            metadata = getattr(doc, "metadata", {}) or {}
+            key = (str(metadata.get("source_name") or metadata.get("source_path") or ""), metadata.get("page"))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(doc)
+        return merged
+
+    def _format_retrieved_context(self, documents: list[Any]) -> str:
+        explicit_pdf_documents = [
+            doc
+            for doc in documents
+            if (getattr(doc, "metadata", {}) or {}).get("retrieval_mode") == "explicit_pdf"
+        ]
+        remaining_documents = [doc for doc in documents if doc not in explicit_pdf_documents]
+        blocks: list[str] = []
+        if explicit_pdf_documents:
+            blocks.append(format_pdf_context(explicit_pdf_documents))
+        if remaining_documents:
+            blocks.append(self.insight_service.format_context(remaining_documents))
+        return "\n\n".join(blocks)
+
+    def _source_labels(self, documents: list[Any]) -> list[str]:
+        explicit_pdf_documents = [
+            doc
+            for doc in documents
+            if (getattr(doc, "metadata", {}) or {}).get("retrieval_mode") == "explicit_pdf"
+        ]
+        remaining_documents = [doc for doc in documents if doc not in explicit_pdf_documents]
+        labels = pdf_source_labels(explicit_pdf_documents)
+        if remaining_documents:
+            labels.extend(self.insight_service.source_labels(remaining_documents))
+        return labels
+
+    def _chunk_metadata(self, documents: list[Any]) -> list[dict[str, Any]]:
+        explicit_pdf_documents = [
+            doc
+            for doc in documents
+            if (getattr(doc, "metadata", {}) or {}).get("retrieval_mode") == "explicit_pdf"
+        ]
+        remaining_documents = [doc for doc in documents if doc not in explicit_pdf_documents]
+        metadata = pdf_chunk_metadata(explicit_pdf_documents)
+        if remaining_documents:
+            metadata.extend(self.insight_service.chunk_metadata(remaining_documents))
+        return metadata
+
     def _fetch_defi_context(self, symbol: str) -> tuple[dict[str, Any] | None, str, str | None]:
         if not defillama_context_enabled():
             return None, "disabled", None
@@ -371,14 +438,20 @@ class HybridAnalysisService:
         market_payload = {
             "symbol": market_data["symbol"],
             "provider": market_data.get("provider"),
+            "source": market_data.get("source"),
+            "timestamp": market_data.get("timestamp"),
             "timeframe": market_data["timeframe"],
             "latest_price": market_data["price"],
+            "change_24h_percent": (market_data.get("market") or {}).get("change_24h_percent"),
+            "volume_24h_usd": (market_data.get("market") or {}).get("volume_24h_usd"),
+            "latest_candle": market_data.get("latest_candle", {}),
             "indicators": {
                 "rsi": indicators.get("rsi"),
                 "ema_12": indicators.get("ema_12"),
                 "ema_20": indicators.get("ema_20"),
                 "ema_26": indicators.get("ema_26"),
                 "ema_50": indicators.get("ema_50"),
+                "ema_200": indicators.get("ema_200"),
                 "macd": indicators.get("macd"),
                 "macd_signal": indicators.get("macd_signal"),
                 "macd_histogram": indicators.get("macd_histogram"),
@@ -387,6 +460,8 @@ class HybridAnalysisService:
                 "bollinger_lower": indicators.get("bollinger_lower"),
                 "bollinger_bandwidth": indicators.get("bollinger_bandwidth"),
                 "volatility_20": indicators.get("volatility_20"),
+                "support_20": indicators.get("support_20"),
+                "resistance_20": indicators.get("resistance_20"),
             },
             "trend_summary": market_data["trend"],
             "risk_flags": market_data["risk_flags"],
@@ -416,9 +491,14 @@ class HybridAnalysisService:
         indicators = market_data["indicators"]
         compact_payload = {
             "symbol": market_data["symbol"],
+            "source": market_data.get("source"),
+            "provider": market_data.get("provider"),
+            "timestamp": market_data.get("timestamp"),
             "timeframe": market_data["timeframe"],
             "limit": limit,
             "latest_close_price": indicators.get("close") or market_data.get("price"),
+            "change_24h_percent": (market_data.get("market") or {}).get("change_24h_percent"),
+            "volume_24h_usd": (market_data.get("market") or {}).get("volume_24h_usd"),
             "rsi": {
                 "value": indicators.get("rsi"),
                 "hint": self._rsi_hint(indicators.get("rsi")),
@@ -426,6 +506,7 @@ class HybridAnalysisService:
             "ema_trend": {
                 "ema_20": indicators.get("ema_20"),
                 "ema_50": indicators.get("ema_50"),
+                "ema_200": indicators.get("ema_200"),
                 "hint": self._ema_hint(indicators),
             },
             "macd": {
@@ -442,6 +523,10 @@ class HybridAnalysisService:
                 "volatility_20": indicators.get("volatility_20"),
                 "hint": self._bollinger_volatility_hint(indicators),
             },
+            "support_resistance": {
+                "support_20": indicators.get("support_20"),
+                "resistance_20": indicators.get("resistance_20"),
+            },
             "trend_summary": market_data["trend"],
             "risk_flags": market_data["risk_flags"],
         }
@@ -449,22 +534,52 @@ class HybridAnalysisService:
 
     def _technical_system_prompt(self) -> str:
         return (
-            "You are a concise cryptocurrency technical-analysis assistant for an academic FYP system. "
-            "Use only the compact technical indicator context provided. "
-            "Explain RSI, EMA trend, MACD momentum, and Bollinger/volatility only when present. "
-            "Do not mention news, RAG documents, DeFiLlama, fundamentals, or external events. "
-            "Separate observed indicators from interpretation and avoid financial advice."
+            "You are a professional Web3 and crypto market risk analyst for an academic FYP system. "
+            "Use only the compact technical indicator context provided. Do not invent live data, sources, PDF names, "
+            "page numbers, or indicators. Output exactly these sections: 1. Executive Summary, 2. Live Market Data, "
+            "3. Technical Indicators, 4. RAG/PDF Evidence, 5. Analysis, 6. Risk Conclusion. "
+            "In Executive Summary include current price, 24h change, market direction "
+            "(bullish, bearish, neutral, or volatile), main risk driver, and confidence. "
+            "In Live Market Data include source, timestamp, price, 24h change, and volume if available; write "
+            "Evidence missing when a field is absent. In Technical Indicators include RSI, EMA 20 / EMA 50 / EMA 200 "
+            "if available, Bollinger Bands if available, and support/resistance if available. "
+            "RSI rules: RSI > 70 = overbought; RSI < 30 = oversold; RSI 30-40 = weak momentum / near oversold, "
+            "but not oversold; RSI 40-60 = neutral; RSI 60-70 = strong momentum / near overbought, but not overbought. "
+            "EMA rules: price below short-term EMA suggests weak short-term momentum; bearish EMA alignment suggests "
+            "downside risk; bullish EMA alignment suggests upward momentum. Bollinger rule: price near the lower band "
+            "may indicate support or downside pressure, never a guaranteed buy signal. "
+            "In RAG/PDF Evidence write exactly: No relevant PDF evidence was retrieved, so this analysis is not fully RAG-grounded. "
+            "Separate facts from interpretation in Analysis. Never claim certainty; use cautious wording such as suggests, "
+            "may indicate, appears, risk remains, and confidence is limited. "
+            "End with: This is a market risk analysis, not financial advice."
         )
 
     def _system_prompt(self) -> str:
         return (
-            "You are a cryptocurrency market analysis assistant for an academic FYP MVP. "
-            "Use only the provided market data, technical indicators, risk flags, DeFiLlama context, retrieved RAG context, and live news context. "
-            "DeFiLlama context reflects DeFi ecosystem health, TVL, liquidity, and protocol fundamentals; it is not direct price prediction data. "
-            "If retrieved context or live news is insufficient, say that clearly. "
-            "Separate observed data from interpretation. "
-            "Keep the answer concise and suitable for a local presentation. "
-            "Do not provide financial advice, price targets, or unsupported causal claims."
+            "You are a professional Web3 and crypto market risk analyst for an academic FYP MVP. "
+            "Use only the provided market data, technical indicators, risk flags, DeFiLlama context, retrieved RAG context, "
+            "and live news context. Do not invent live data, sources, PDF names, page numbers, technical indicators, or retrieved claims. "
+            "Output exactly these sections: 1. Executive Summary, 2. Live Market Data, 3. Technical Indicators, "
+            "4. RAG/PDF Evidence, 5. Analysis, 6. Risk Conclusion. "
+            "Executive Summary must include current price, 24h change, market direction "
+            "(bullish, bearish, neutral, or volatile), main risk driver, and confidence (Low, Medium, or High). "
+            "Live Market Data must include source, timestamp, price, 24h change, and volume if available; write Evidence missing "
+            "when a field is absent. Technical Indicators must include RSI, EMA 20 / EMA 50 / EMA 200 if available, "
+            "Bollinger Bands if available, and support/resistance if available. "
+            "RSI rules: RSI > 70 = overbought; RSI < 30 = oversold; RSI 30-40 = weak momentum / near oversold, but not oversold; "
+            "RSI 40-60 = neutral; RSI 60-70 = strong momentum / near overbought, but not overbought. "
+            "EMA rules: price below short-term EMA suggests weak short-term momentum; bearish EMA alignment suggests downside risk; "
+            "bullish EMA alignment suggests upward momentum. Bollinger rule: price near the lower band may indicate support or "
+            "downside pressure, never a guaranteed buy signal. "
+            "For every retrieved PDF/RAG source, cite PDF name, page number, retrieved claim, why it matters, and risk implication "
+            "(bullish, bearish, neutral, or structural). If no relevant PDF evidence was retrieved, write exactly: "
+            "No relevant PDF evidence was retrieved, so this analysis is not fully RAG-grounded. "
+            "Do not say source-grounded unless PDF evidence is shown by name and page. Do not use vague phrases like based on documents "
+            "without naming the document. DeFiLlama context reflects ecosystem health, TVL, liquidity, and protocol fundamentals; "
+            "it is not direct price prediction data. Separate facts from interpretation in Analysis. Never claim certainty; use cautious "
+            "wording such as suggests, may indicate, appears, risk remains, and confidence is limited. "
+            "Do not provide price targets, guaranteed predictions, trading advice, or unsupported causal claims. "
+            "End with: This is a market risk analysis, not financial advice."
         )
 
     def _clip_context(self, value: str, max_length: int) -> str:
@@ -477,30 +592,35 @@ class HybridAnalysisService:
         rsi = self._optional_float(value)
         if rsi is None:
             return "RSI unavailable."
-        if rsi >= 70:
-            return "Overbought zone; upside momentum may be stretched."
-        if rsi <= 30:
-            return "Oversold zone; downside momentum may be stretched."
+        if rsi > 70:
+            return "Overbought; upside momentum may be stretched."
+        if rsi < 30:
+            return "Oversold; downside momentum may be stretched."
         if rsi >= 60:
-            return "Bullish momentum zone but not overbought."
+            return "Strong momentum / near overbought, but not overbought."
         if rsi <= 40:
-            return "Bearish momentum zone but not oversold."
+            return "Weak momentum / near oversold, but not oversold."
         return "Neutral momentum zone."
 
     def _ema_hint(self, indicators: dict[str, Any]) -> str:
         close = self._optional_float(indicators.get("close"))
         ema_20 = self._optional_float(indicators.get("ema_20"))
         ema_50 = self._optional_float(indicators.get("ema_50"))
+        ema_200 = self._optional_float(indicators.get("ema_200"))
         if close is None or ema_20 is None or ema_50 is None:
             return "EMA trend unavailable."
+        if ema_200 is not None and close > ema_20 > ema_50 > ema_200:
+            return "Price is above EMA20 and EMA20 > EMA50 > EMA200; bullish EMA alignment suggests upward momentum."
+        if ema_200 is not None and close < ema_20 < ema_50 < ema_200:
+            return "Price is below EMA20 and EMA20 < EMA50 < EMA200; bearish EMA alignment suggests downside risk."
         if close > ema_20 > ema_50:
-            return "Price is above EMA20 and EMA20 is above EMA50; bullish short-term trend structure."
+            return "Price is above EMA20 and EMA20 is above EMA50; bullish short-term EMA alignment suggests upward momentum."
         if close < ema_20 < ema_50:
-            return "Price is below EMA20 and EMA20 is below EMA50; bearish short-term trend structure."
+            return "Price is below EMA20 and EMA20 is below EMA50; bearish short-term EMA alignment suggests downside risk."
         if close > ema_20:
             return "Price is above EMA20 but EMA alignment is mixed."
         if close < ema_20:
-            return "Price is below EMA20 but EMA alignment is mixed."
+            return "Price is below EMA20, which suggests weak short-term momentum, but EMA alignment is mixed."
         return "Price is near EMA20; trend structure is neutral."
 
     def _macd_hint(self, value: Any) -> str:
@@ -524,7 +644,7 @@ class HybridAnalysisService:
             if close >= upper:
                 hints.append("Price is near or above the upper Bollinger Band.")
             elif close <= lower:
-                hints.append("Price is near or below the lower Bollinger Band.")
+                hints.append("Price is near or below the lower Bollinger Band, which may indicate support or downside pressure but is not a guaranteed buy signal.")
             else:
                 hints.append("Price is inside the Bollinger Bands.")
         if bandwidth is not None:
@@ -574,35 +694,62 @@ class HybridAnalysisService:
     ) -> str:
         warnings = market_data.get("source_warnings") or []
         news_count = news_data.get("article_count", 0)
-        risk_flags = "; ".join(market_data.get("risk_flags") or ["No risk flags returned."])
+        risk_flags = market_data.get("risk_flags") or ["No risk flags returned."]
+        main_risk_driver = risk_flags[0]
         defi_summary = self._defi_fallback_summary(defi_context, defillama_status)
         news_summary = self._fallback_news_summary(news_data)
         indicators = market_data.get("indicators") or {}
         rsi = indicators.get("rsi")
-        macd_histogram = indicators.get("macd_histogram")
+        rsi_hint = self._rsi_hint(rsi)
         ema_20 = indicators.get("ema_20")
         ema_50 = indicators.get("ema_50")
+        ema_200 = indicators.get("ema_200")
+        bollinger_upper = indicators.get("bollinger_upper")
+        bollinger_middle = indicators.get("bollinger_middle")
+        bollinger_lower = indicators.get("bollinger_lower")
+        support_20 = indicators.get("support_20")
+        resistance_20 = indicators.get("resistance_20")
+        market = market_data.get("market") or {}
+        direction = self._market_direction(market_data)
+        final_risk_level = self._risk_level(risk_flags)
         return (
-            "Structured backend answer\n"
-            "The local LLM did not finish in time, so this answer uses backend evidence instead of free-form LLM reasoning.\n\n"
-            f"Market state\n"
-            f"- Symbol: {market_data.get('symbol')}\n"
-            f"- Trend: {market_data.get('trend')}\n"
-            f"- RSI: {self._format_optional_metric(rsi)}\n"
-            f"- EMA20 / EMA50: {self._format_optional_metric(ema_20)} / {self._format_optional_metric(ema_50)}\n"
-            f"- MACD histogram: {self._format_optional_metric(macd_histogram)}\n\n"
-            "Risk view\n"
-            f"- Flags: {risk_flags}\n"
-            "- Short-term risk looks mainly momentum-driven unless the news item below is a clear catalyst.\n"
-            "- Watch for reversal risk if RSI stretches further, MACD weakens, or price falls below short-term EMAs.\n\n"
-            f"Live news evidence ({news_count} article(s))\n"
-            f"{news_summary}\n\n"
-            "Runtime notes\n"
-            f"- DeFiLlama context: {defi_summary}\n"
-            f"- Data mode: {market_data.get('data_mode', 'live')}\n"
-            f"- Provider warnings: {' | '.join(warnings) if warnings else 'none'}\n"
-            f"- Fallback reason: {reason}\n\n"
-            "Academic demo output only. Not financial advice."
+            "1. Executive Summary\n\n"
+            f"* Current price: {self._format_evidence_metric(market_data.get('price'))}\n"
+            f"* 24h change: {self._format_percent(market.get('change_24h_percent'))}\n"
+            f"* Market direction: {direction}\n"
+            f"* Main risk driver: {main_risk_driver}\n"
+            "* Confidence: Low\n\n"
+            "2. Live Market Data\n\n"
+            f"* Source: {market_data.get('source') or market_data.get('provider') or 'Evidence missing'}\n"
+            f"* Timestamp: {market_data.get('timestamp') or 'Evidence missing'}\n"
+            f"* Price: {self._format_evidence_metric(market_data.get('price'))}\n"
+            f"* 24h change: {self._format_percent(market.get('change_24h_percent'))}\n"
+            f"* Volume if available: {self._format_evidence_metric(market.get('volume_24h_usd'))}\n\n"
+            "3. Technical Indicators\n\n"
+            f"* RSI: {self._format_optional_metric(rsi)} ({rsi_hint})\n"
+            f"* EMA 20 / EMA 50 / EMA 200: {self._format_optional_metric(ema_20)} / "
+            f"{self._format_optional_metric(ema_50)} / {self._format_optional_metric(ema_200)} "
+            f"({self._ema_hint(indicators)})\n"
+            f"* Bollinger Bands: upper {self._format_optional_metric(bollinger_upper)}, "
+            f"middle {self._format_optional_metric(bollinger_middle)}, "
+            f"lower {self._format_optional_metric(bollinger_lower)} "
+            f"({self._bollinger_volatility_hint(indicators)})\n"
+            f"* Support and resistance: support {self._format_optional_metric(support_20)}, "
+            f"resistance {self._format_optional_metric(resistance_20)}\n\n"
+            "4. RAG/PDF Evidence\n\n"
+            "No relevant PDF evidence was retrieved, so this analysis is not fully RAG-grounded.\n\n"
+            "5. Analysis\n\n"
+            "Facts: The backend used live market data and calculated technical indicators from real OHLCV candles. "
+            f"Retrieved live news count was {news_count}. DeFiLlama context status was {defi_summary}. "
+            f"Provider warnings: {' | '.join(warnings) if warnings else 'none'}.\n\n"
+            "Interpretation: The risk view appears mainly driven by the listed technical risk flags. "
+            "Because the local LLM did not complete, confidence is limited and the analysis avoids unsupported causal claims. "
+            f"Live news evidence summary: {news_summary}\n\n"
+            "6. Risk Conclusion\n\n"
+            f"Final risk level: {final_risk_level}\n"
+            "Confidence: Low\n"
+            f"Fallback reason: {reason}\n\n"
+            "This is a market risk analysis, not financial advice."
         )
 
     def _fallback_news_summary(self, news_data: dict[str, Any]) -> str:
@@ -631,6 +778,42 @@ class HybridAnalysisService:
         if abs(number) >= 1000:
             return f"{number:,.2f}"
         return f"{number:.4g}"
+
+    def _format_evidence_metric(self, value: Any) -> str:
+        number = self._optional_float(value)
+        if number is None:
+            return "Evidence missing"
+        if abs(number) >= 1000:
+            return f"{number:,.2f}"
+        return f"{number:.4g}"
+
+    def _format_percent(self, value: Any) -> str:
+        number = self._optional_float(value)
+        if number is None:
+            return "Evidence missing"
+        return f"{number:.2f}%"
+
+    def _market_direction(self, market_data: dict[str, Any]) -> str:
+        trend = str(market_data.get("trend") or "").lower()
+        indicators = market_data.get("indicators") or {}
+        volatility = self._optional_float(indicators.get("volatility_20"))
+        bandwidth = self._optional_float(indicators.get("bollinger_bandwidth"))
+        if (volatility is not None and volatility >= 0.04) or (bandwidth is not None and bandwidth >= 0.08):
+            return "volatile"
+        if "bullish" in trend:
+            return "bullish"
+        if "bearish" in trend:
+            return "bearish"
+        return "neutral"
+
+    def _risk_level(self, risk_flags: list[str]) -> str:
+        if not risk_flags:
+            return "Undetermined"
+        if any("No major technical risk flag" in flag for flag in risk_flags):
+            return "Moderate"
+        if len(risk_flags) >= 2:
+            return "Elevated"
+        return "Moderate"
 
     def _defi_fallback_summary(self, defi_context: dict[str, Any] | None, status: str) -> str:
         if status != "available" or not defi_context:

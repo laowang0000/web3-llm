@@ -13,7 +13,7 @@ export const sampleQueries = [
     label: "ETH RAG evidence",
     engine: "insight",
     symbol: "ETHUSDT",
-    question: "Use RAG retrieved PDF documents and source-grounded context to analyze ETH market risk. Cite the retrieved sources and separate PDF evidence from live market indicators.",
+    question: "Use the PDF the-eth-value-debate.pdf as retrieved RAG evidence to analyze ETH market risk. Cite the PDF name, page number, retrieved claim, why it matters, and risk implication. Separate PDF evidence from live market indicators.",
   },
   {
     label: "SOL prediction",

@@ -35,7 +35,7 @@ DISCLAIMER = (
 DEMO_RECOMMENDED_SETTINGS = {
     "symbol": "BTCUSDT",
     "timeframes": ["4h", "1d"],
-    "limit": "500 candles for the current demo; 1000+ for stronger validation",
+    "limit": "300 daily candles for the public-provider demo; use higher limits only when Binance historical data is stable",
     "horizon_candles": "3 to 5 future candles",
 }
 

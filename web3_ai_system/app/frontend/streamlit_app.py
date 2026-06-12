@@ -139,10 +139,21 @@ def render_indicators(data: dict[str, Any]) -> None:
 
     rsi_col, ema_col, macd_col, bollinger_col, vol_col = st.columns(5)
     rsi_col.metric("RSI", format_decimal(indicators.get("rsi"), 2))
-    ema_col.metric("EMA 20 / 50", f"{format_decimal(indicators.get('ema_20'), 2)} / {format_decimal(indicators.get('ema_50'), 2)}")
+    ema_col.metric(
+        "EMA 20 / 50 / 200",
+        (
+            f"{format_decimal(indicators.get('ema_20'), 2)} / "
+            f"{format_decimal(indicators.get('ema_50'), 2)} / "
+            f"{format_decimal(indicators.get('ema_200'), 2)}"
+        ),
+    )
     macd_col.metric("MACD hist", format_decimal(indicators.get("macd_histogram"), 4))
     bollinger_col.metric("BB bandwidth", format_decimal(indicators.get("bollinger_bandwidth"), 4))
     vol_col.metric("Volatility 20", format_decimal(indicators.get("volatility_20"), 4))
+
+    support_col, resistance_col = st.columns(2)
+    support_col.metric("Support 20", format_decimal(indicators.get("support_20"), 2))
+    resistance_col.metric("Resistance 20", format_decimal(indicators.get("resistance_20"), 2))
 
     with st.expander("Full indicator details"):
         st.json(indicators)
