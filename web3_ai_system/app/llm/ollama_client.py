@@ -46,6 +46,17 @@ class OpenAICompatibleSettings:
         return replace(self, model=model)
 
 
+@dataclass(frozen=True)
+class ResearchApiSettings:
+    endpoint_url: str
+    api_key: str = field(repr=False)
+    model: str = "remote-research-api"
+    timeout_seconds: float = 60.0
+
+    def with_model(self, model: str) -> "ResearchApiSettings":
+        return replace(self, model=model or self.model)
+
+
 def _load_environment() -> None:
     project_env = Path(__file__).resolve().parents[2] / ".env"
     load_dotenv(project_env)
@@ -280,6 +291,72 @@ class OpenAICompatibleChatClient:
         if not content:
             raise OllamaClientError("OpenAI-compatible response did not contain message content.")
         return str(content).strip()
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.settings.api_key:
+            headers["Authorization"] = f"Bearer {self.settings.api_key}"
+        return headers
+
+
+class ResearchApiChatClient:
+    """Adapter for the MMU research ask endpoint exposed over Tailscale."""
+
+    provider_type = "research_api"
+
+    def __init__(self, settings: ResearchApiSettings) -> None:
+        self.settings = settings
+
+    def with_model(self, model: str) -> "ResearchApiChatClient":
+        return ResearchApiChatClient(settings=self.settings.with_model(model))
+
+    def list_models(self) -> dict[str, Any]:
+        self._post_question("Reply with OK only.", timeout_seconds=min(30.0, self.settings.timeout_seconds))
+        return {
+            "base_url": self.settings.endpoint_url,
+            "provider_type": self.provider_type,
+            "model_name": self.settings.model,
+            "default_chat_model": self.settings.model,
+            "available_models": [self.settings.model],
+            "chat_models": [self.settings.model],
+            "model_available": True,
+        }
+
+    def chat(
+        self,
+        message: str,
+        system_prompt: str | None = None,
+        context: str | None = None,
+    ) -> str:
+        question = message.strip()
+        payload = self._post_question(question, timeout_seconds=self.settings.timeout_seconds)
+        content = payload.get("answer") or payload.get("response") or payload.get("content")
+        if not content:
+            raise OllamaClientError("Research API response did not contain answer content.")
+        return str(content).strip()
+
+    def _post_question(self, question: str, *, timeout_seconds: float) -> dict[str, Any]:
+        try:
+            with httpx.Client(timeout=timeout_seconds) as client:
+                response = client.post(
+                    normalize_base_url(self.settings.endpoint_url),
+                    headers=self._headers(),
+                    json={"question": question},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.TimeoutException as exc:
+            raise OllamaClientError("Research API request timed out.") from exc
+        except httpx.RequestError as exc:
+            raise OllamaClientError("Could not connect to the Research API endpoint.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise OllamaClientError(f"Research API endpoint returned HTTP {exc.response.status_code}: {exc.response.text}") from exc
+        except ValueError as exc:
+            raise OllamaClientError("Research API endpoint returned an invalid JSON response.") from exc
+
+        if not isinstance(payload, dict):
+            raise OllamaClientError("Research API endpoint returned an unexpected JSON response.")
+        return payload
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}

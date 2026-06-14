@@ -213,7 +213,7 @@ class HybridAnalysisService:
                 context=prompt_context,
             )
             model_name = model_requested
-            generation_mode = "ollama"
+            generation_mode = getattr(llm_client, "provider_type", "ollama")
             response_mode = success_response_mode
         except OllamaClientError as exc:
             answer = self._fallback_answer(market_data, news_data, defi_context, defillama_status, str(exc))

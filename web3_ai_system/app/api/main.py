@@ -19,6 +19,8 @@ from app.llm.ollama_client import (
     get_embedding_model_name,
     OpenAICompatibleChatClient,
     OpenAICompatibleSettings,
+    ResearchApiChatClient,
+    ResearchApiSettings,
     is_selectable_chat_model,
     normalize_base_url,
 )
@@ -69,10 +71,10 @@ class ApiResponse(BaseModel):
 class ModelProviderConfig(BaseModel):
     provider_type: str = Field(
         default="local_ollama",
-        description="Model provider: local_ollama, remote_ollama, openai_compatible, or custom_endpoint.",
+        description="Model provider: local_ollama, remote_ollama, openai_compatible, research_api, or custom_endpoint.",
     )
-    base_url: str | None = Field(default=None, description="Remote Ollama or OpenAI-compatible API base URL.")
-    api_key: str | None = Field(default=None, description="API key for OpenAI-compatible providers.")
+    base_url: str | None = Field(default=None, description="Remote provider base URL or endpoint URL.")
+    api_key: str | None = Field(default=None, description="API key for OpenAI-compatible or Research API providers.")
     model_name: str | None = Field(default=None, description="Provider model name for this request.")
 
     def normalized_type(self) -> str:
@@ -418,6 +420,21 @@ def _resolve_model_client(provider_config: ModelProviderConfig | None, selected_
             )
         )
 
+    if provider_type == "research_api":
+        if provider_config is None or not provider_config.base_url:
+            raise ValueError("Research API endpoint URL is required.")
+        if not provider_config.api_key:
+            raise ValueError("Research API key is required.")
+        default_timeout = OllamaChatClient().settings.timeout_seconds
+        return ResearchApiChatClient(
+            ResearchApiSettings(
+                endpoint_url=normalize_base_url(provider_config.base_url),
+                api_key=provider_config.api_key,
+                model=(provider_config.model_name or "remote-research-api").strip() or "remote-research-api",
+                timeout_seconds=default_timeout,
+            )
+        )
+
     if provider_type == "custom_endpoint":
         raise ValueError("Custom endpoint provider is reserved for future extension.")
 
@@ -425,7 +442,7 @@ def _resolve_model_client(provider_config: ModelProviderConfig | None, selected_
 
 
 def _resolve_selected_model_for_provider(request: ChatRequest | HybridAnalysisRequest) -> str | None:
-    if _provider_type(request.provider_config) == "openai_compatible":
+    if _provider_type(request.provider_config) in {"openai_compatible", "research_api"}:
         return None
     return request.resolved_selected_model()
 
@@ -685,6 +702,12 @@ def test_model_connection(request: TestModelConnectionRequest) -> Any:
             data = client.list_models()
             data["provider_type"] = provider_type
             return ApiResponse(success=True, data=data, sources=["openai-compatible:/models"])
+
+        if provider_type == "research_api":
+            client = _resolve_model_client(provider_config)
+            data = client.list_models()
+            data["provider_type"] = provider_type
+            return ApiResponse(success=True, data=data, sources=["research-api:/v1/research/ask"])
 
         if provider_type == "custom_endpoint":
             raise ValueError("Custom endpoint provider is reserved for future extension.")

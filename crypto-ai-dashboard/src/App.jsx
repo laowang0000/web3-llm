@@ -13,6 +13,8 @@ const DEFAULT_PROVIDER_SETTINGS = {
   providerType: "local_ollama",
   remoteOllamaBaseUrl: "",
   remoteModelName: "",
+  researchApiEndpointUrl: "http://100.124.37.113:5000/v1/research/ask",
+  researchApiKey: "",
   openaiBaseUrl: "",
   openaiApiKey: "",
   openaiModelName: "",
@@ -620,7 +622,7 @@ function ModelSettingsPage({
   const hasModels = chatModels.length > 0;
   const providerType = providerSettings.providerType;
   const remoteHasModels = remoteModelCatalog.chatModels.length > 0;
-  const displayedModels = providerType === "remote_ollama" ? remoteModelCatalog.chatModels : chatModels;
+  const displayedModels = providerType === "remote_ollama" ? remoteModelCatalog.chatModels : providerType === "research_api" ? [] : chatModels;
   const hasDisplayedModels = displayedModels.length > 0;
 
   return (
@@ -651,6 +653,7 @@ function ModelSettingsPage({
             >
               <option value="local_ollama">Local Ollama</option>
               <option value="remote_ollama">Remote Ollama</option>
+              <option value="research_api">Remote Research API</option>
               <option value="openai_compatible">OpenAI-compatible API</option>
             </select>
           </label>
@@ -729,6 +732,38 @@ function ModelSettingsPage({
             </div>
           )}
 
+          {providerType === "research_api" && (
+            <div className="mt-6 grid gap-5">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">Research API Endpoint</span>
+                <input
+                  value={providerSettings.researchApiEndpointUrl}
+                  onChange={(event) => setProviderSettings((current) => ({ ...current, researchApiEndpointUrl: event.target.value }))}
+                  className="mt-2 min-h-[56px] w-full rounded-[1.25rem] border border-line-soft bg-surface-950 px-4 text-sm font-semibold text-ink-50 outline-none subtle-ring transition-all duration-700 ease-premium focus:border-accent-gold/35"
+                  placeholder="http://100.124.37.113:5000/v1/research/ask"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">Authentication Key</span>
+                <input
+                  type="password"
+                  value={providerSettings.researchApiKey}
+                  onChange={(event) => setProviderSettings((current) => ({ ...current, researchApiKey: event.target.value }))}
+                  className="mt-2 min-h-[56px] w-full rounded-[1.25rem] border border-line-soft bg-surface-950 px-4 text-sm font-semibold text-ink-50 outline-none subtle-ring transition-all duration-700 ease-premium focus:border-accent-gold/35"
+                  placeholder="Not stored in localStorage"
+                />
+                <p className="mt-2 text-xs leading-5 text-accent-champagne">Sent as Authorization: Bearer key. It is kept in this browser session only.</p>
+              </label>
+              <button
+                onClick={onTestExternalProvider}
+                disabled={!providerSettings.researchApiEndpointUrl || !providerSettings.researchApiKey || externalTest.status === "loading"}
+                className="ghost-button h-12 w-fit text-sm disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {externalTest.status === "loading" ? "Testing..." : "Test Connection"}
+              </button>
+            </div>
+          )}
+
           {providerType === "openai_compatible" && (
             <div className="mt-6 grid gap-5">
               <label className="block">
@@ -795,7 +830,7 @@ function ModelSettingsPage({
 
         <div className="gold-shell rounded-[1.8rem]">
           <div className="gold-core rounded-[1.45rem] p-5">
-            <h3 className="text-lg font-semibold text-ink-50">{providerType === "remote_ollama" ? "Remote chat models" : "Available local chat models"}</h3>
+            <h3 className="text-lg font-semibold text-ink-50">{providerType === "remote_ollama" ? "Remote chat models" : providerType === "research_api" ? "Research API model" : "Available local chat models"}</h3>
             {hasDisplayedModels ? (
               <div className="mt-4 space-y-3">
                 {displayedModels.map((modelName) => (
@@ -806,7 +841,13 @@ function ModelSettingsPage({
                 ))}
               </div>
             ) : (
-              <p className="mt-3 text-sm leading-6 text-ink-400">{providerType === "remote_ollama" ? "Test the remote connection to list models." : "Ollama is not running or local models cannot be detected."}</p>
+              <p className="mt-3 text-sm leading-6 text-ink-400">
+                {providerType === "remote_ollama"
+                  ? "Test the remote connection to list models."
+                  : providerType === "research_api"
+                    ? "This provider exposes one remote research chat endpoint. Use Test Connection to verify it over Tailscale."
+                    : "Ollama is not running or local models cannot be detected."}
+              </p>
             )}
           </div>
         </div>
@@ -829,7 +870,7 @@ function ModelSettingsPage({
         <div className="rounded-[1.45rem] border border-line-soft bg-surface-900/90 p-5">
           <h3 className="text-lg font-semibold text-ink-50">Custom endpoint placeholder</h3>
           <p className="mt-3 text-sm leading-6 text-ink-400">
-            Custom endpoints are reserved for a future extension. GPU clusters should expose Remote Ollama or OpenAI-compatible APIs instead of being managed here.
+            Custom endpoints are reserved for future providers that do not match Ollama, OpenAI-compatible, or the MMU Research API shape.
           </p>
         </div>
       </aside>
@@ -1497,6 +1538,7 @@ function readStoredProviderSettings() {
       ...DEFAULT_PROVIDER_SETTINGS,
       ...parsed,
       openaiApiKey: "",
+      researchApiKey: "",
     };
   } catch {
     return DEFAULT_PROVIDER_SETTINGS;
@@ -1509,6 +1551,7 @@ function writeStoredProviderSettings(settings) {
       providerType: settings.providerType,
       remoteOllamaBaseUrl: settings.remoteOllamaBaseUrl,
       remoteModelName: settings.remoteModelName,
+      researchApiEndpointUrl: settings.researchApiEndpointUrl,
       openaiBaseUrl: settings.openaiBaseUrl,
       openaiModelName: settings.openaiModelName,
     };
@@ -1535,6 +1578,14 @@ function buildProviderConfig(settings, selectedChatModel) {
       model_name: settings.openaiModelName.trim(),
     };
   }
+  if (settings.providerType === "research_api") {
+    return {
+      provider_type: "research_api",
+      base_url: settings.researchApiEndpointUrl.trim(),
+      api_key: settings.researchApiKey,
+      model_name: "remote-research-api",
+    };
+  }
   return {
     provider_type: settings.providerType,
   };
@@ -1549,6 +1600,9 @@ function describeActiveProviderModel(settings, selectedChatModel) {
   }
   if (settings.providerType === "openai_compatible") {
     return `OpenAI-compatible / ${settings.openaiModelName || "enter model name"}`;
+  }
+  if (settings.providerType === "research_api") {
+    return "Remote Research API / remote-research-api";
   }
   return "Custom endpoint placeholder";
 }
