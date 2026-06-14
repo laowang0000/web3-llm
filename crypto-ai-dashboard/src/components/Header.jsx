@@ -1,4 +1,4 @@
-function Header({ backendStatus, onCheckBackend }) {
+function Header({ backendStatus, onCheckBackend, onOpenGuide }) {
   return (
     <header className="border-b border-line-soft bg-surface-950/86 px-4 py-5 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
@@ -13,6 +13,9 @@ function Header({ backendStatus, onCheckBackend }) {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <button data-testid="open-guide" onClick={onOpenGuide} className="ghost-button flex items-center justify-center gap-2 text-sm">
+            Guide
+          </button>
           <button data-testid="check-backend" onClick={onCheckBackend} className="ghost-button flex items-center justify-center gap-2 text-sm">
             <span className={`h-2 w-2 rounded-full ${backendStatus === "online" ? "bg-accent-green" : backendStatus === "checking" ? "bg-accent-gold" : "bg-accent-red"}`} />
             {backendStatus === "online" ? "Backend online" : backendStatus === "checking" ? "Checking..." : "Check backend"}

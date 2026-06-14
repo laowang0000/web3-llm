@@ -3,6 +3,7 @@ import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import { sampleQueries, symbols, timeframes } from "./data/marketData";
 import { Icon } from "./components/icons";
+import { getInitialGuideOpen, onboardingSteps, rememberGuideDismissed } from "./onboardingGuide";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const REQUEST_TIMEOUT_MS = 180000;
@@ -67,6 +68,10 @@ function App() {
     error: "",
   });
   const [externalTest, setExternalTest] = useState({ status: "idle", message: "" });
+  const [guideOpen, setGuideOpen] = useState(() =>
+    typeof window === "undefined" ? false : getInitialGuideOpen(window.localStorage),
+  );
+  const [guideStepIndex, setGuideStepIndex] = useState(0);
 
   useEffect(() => {
     loadOllamaModels();
@@ -251,6 +256,25 @@ function App() {
     }
   }
 
+  function openGuide() {
+    setGuideStepIndex(0);
+    setGuideOpen(true);
+  }
+
+  function closeGuide() {
+    if (typeof window !== "undefined") {
+      rememberGuideDismissed(window.localStorage);
+    }
+    setGuideOpen(false);
+  }
+
+  function showGuideArea(index) {
+    const nextIndex = Math.max(0, Math.min(index, onboardingSteps.length - 1));
+    const step = onboardingSteps[nextIndex];
+    setGuideStepIndex(nextIndex);
+    setActiveEngine(step.targetEngine);
+  }
+
   const activeTitle = activeEngine === "insight" ? "Insight Engine" : activeEngine === "prediction" ? "Prediction Engine" : "Settings";
   const activeNotice = activeEngine === "insight" ? insightNotice : activeEngine === "prediction" ? predictionNotice : systemNotice;
   const activeSymbol = activeEngine === "prediction" ? predictionSymbol : insightSymbol;
@@ -265,7 +289,7 @@ function App() {
         <Sidebar activeEngine={activeEngine} onEngineChange={setActiveEngine} />
 
         <main className="min-w-0 flex-1">
-          <Header backendStatus={backendStatus} onCheckBackend={checkBackend} />
+          <Header backendStatus={backendStatus} onCheckBackend={checkBackend} onOpenGuide={openGuide} />
 
           <section className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
             <MobileEngineSwitch activeEngine={activeEngine} onEngineChange={setActiveEngine} />
@@ -334,6 +358,16 @@ function App() {
           </section>
         </main>
       </div>
+
+      {guideOpen && (
+        <OnboardingGuideModal
+          steps={onboardingSteps}
+          activeIndex={guideStepIndex}
+          onStepChange={setGuideStepIndex}
+          onShowArea={showGuideArea}
+          onClose={closeGuide}
+        />
+      )}
     </div>
   );
 }
@@ -356,6 +390,109 @@ function MobileEngineSwitch({ activeEngine, onEngineChange }) {
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function OnboardingGuideModal({ steps, activeIndex, onStepChange, onShowArea, onClose }) {
+  const activeStep = steps[activeIndex] || steps[0];
+  const isFirst = activeIndex === 0;
+  const isLast = activeIndex === steps.length - 1;
+
+  function moveStep(direction) {
+    onStepChange(Math.max(0, Math.min(activeIndex + direction, steps.length - 1)));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/68 px-3 py-4 backdrop-blur-md sm:items-center sm:justify-center sm:p-6">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guide-title"
+        className="gold-shell w-full max-w-[820px] animate-in rounded-[1.65rem]"
+      >
+        <div className="gold-core max-h-[88vh] overflow-y-auto rounded-[1.3rem] p-4 scroll-soft sm:p-6">
+          <div className="flex flex-col gap-4 border-b border-line-soft pb-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-accent-gold/85">Quick guide</p>
+              <h2 id="guide-title" className="mt-2 text-2xl font-semibold text-ink-50">
+                Learn the main controls
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-300">
+                A short tour of the navigation, inputs, runtime settings and result panels used in this workspace.
+              </p>
+            </div>
+            <button onClick={onClose} className="ghost-button h-11 shrink-0 text-sm" aria-label="Close guide">
+              Close
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <nav className="grid gap-2" aria-label="Guide steps">
+              {steps.map((step, index) => {
+                const active = index === activeIndex;
+                return (
+                  <button
+                    key={step.id}
+                    onClick={() => onStepChange(index)}
+                    className={`rounded-2xl border px-4 py-3 text-left transition-all duration-700 ease-premium ${
+                      active
+                        ? "border-accent-gold/32 bg-accent-gold/10 text-accent-champagne shadow-glow"
+                        : "border-line-soft bg-white/[0.025] text-ink-300 hover:border-line-strong hover:text-ink-50"
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-gold/80">
+                      {String(index + 1).padStart(2, "0")} / {step.eyebrow}
+                    </span>
+                    <span className="mt-1 block text-sm font-semibold">{step.title}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <article className="rounded-[1.35rem] border border-line-soft bg-surface-950/78 p-5">
+              <div className="flex items-start gap-4">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-accent-gold/24 bg-accent-gold/10 text-accent-gold">
+                  <Icon name={activeStep.targetEngine === "models" ? "layers" : activeStep.targetEngine === "prediction" ? "trend" : "brain"} className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">{activeStep.eyebrow}</p>
+                  <h3 className="mt-2 text-xl font-semibold text-ink-50">{activeStep.title}</h3>
+                  <p className="mt-3 text-sm leading-7 text-ink-300">{activeStep.body}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {activeStep.controls.map((control) => (
+                  <div key={control} className="rounded-2xl border border-line-cool bg-white/[0.035] px-4 py-3">
+                    <p className="text-sm font-semibold text-ink-50">{control}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <button onClick={() => onShowArea(activeIndex)} className="premium-button text-sm">
+                  Show me this area
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => moveStep(-1)} disabled={isFirst} className="ghost-button h-11 text-sm disabled:cursor-not-allowed disabled:opacity-45">
+                    Back
+                  </button>
+                  {isLast ? (
+                    <button onClick={onClose} className="ghost-button h-11 text-sm">
+                      Finish
+                    </button>
+                  ) : (
+                    <button onClick={() => moveStep(1)} className="ghost-button h-11 text-sm">
+                      Next
+                    </button>
+                  )}
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

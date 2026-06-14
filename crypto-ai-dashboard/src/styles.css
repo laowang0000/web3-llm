@@ -36,7 +36,7 @@
 
 @layer components {
   .panel {
-    @apply border border-line-soft bg-surface-850/92 shadow-panel;
+    @apply border border-line-soft bg-surface-850/[.92] shadow-panel;
   }
 
   .subtle-ring {
